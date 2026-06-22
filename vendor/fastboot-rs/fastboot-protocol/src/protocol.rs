@@ -70,7 +70,7 @@ impl<S: Display> Display for FastBootCommand<S> {
         match self {
             FastBootCommand::GetVar(var) => write!(f, "getvar:{var}"),
             FastBootCommand::Download(size) => write!(f, "download:{size:08x}"),
-            FastBootCommand::Verify(part) => write!(f, "verity:{part}"),
+            FastBootCommand::Verify(part) => write!(f, "verify:{part}"),
             FastBootCommand::Flash(part) => write!(f, "flash:{part}"),
             FastBootCommand::Erase(part) => write!(f, "erase:{part}"),
             FastBootCommand::Boot => write!(f, "boot"),
