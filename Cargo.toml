@@ -2,7 +2,7 @@
 name = "pawflash"
 version = "0.1.0"
 description = "MTK device flashing toolkit — force fastboot, parse scatters, plan flashes"
-license = "MIT OR Apache-2.0"
+license = "GPL-3.0-or-later"
 repository = "https://github.com/user/pawflash"
 readme = "README.md"
 keywords = ["fastboot", "mediatek", "preloader", "android", "scatter"]
@@ -34,11 +34,14 @@ quick-xml = "0.38"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"
-serialport = "4.9"
 sha2 = "0.10"
 thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+tokio-serial = "5"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "registry"] }
+fastboot-protocol = { git = "https://github.com/ardiandideyashidiq/fastboot-rs", package = "fastboot-protocol" }
+android-sparse-image = { git = "https://github.com/ardiandideyashidiq/fastboot-rs", package = "android-sparse-image" }
 
 [dev-dependencies]
 assert_cmd = "2"

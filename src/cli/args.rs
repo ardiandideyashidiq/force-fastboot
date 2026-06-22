@@ -2,61 +2,42 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use crate::scatter_parser as sp;
 
-/// Top-level CLI struct.
 #[derive(Parser)]
 #[command(name = "pawflash", about = "MTK device flashing toolkit", version)]
 #[command(args_conflicts_with_subcommands = true)]
 pub struct Cli {
-    /// Optional subcommand.
     #[command(subcommand)]
     pub command: Option<Commands>,
 }
 
-/// Available subcommands.
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Force a `MediaTek` device into fastboot mode
+    /// Force a MediaTek device into fastboot mode
     #[command(name = "force-fastboot")]
     ForceFastboot {
-        /// Enable verbose logging (trace level)
         #[arg(short, long)]
         verbose: bool,
     },
     /// Inspect MTK scatter files and build flash plans
     Scatter {
-        /// Scatter action subcommand.
         #[command(subcommand)]
         action: ScatterAction,
     },
-}
-
-/// Scatter sub-subcommands.
-#[derive(Subcommand)]
-pub enum ScatterAction {
-    /// Print parsed scatter metadata
-    Parse {
+    /// Flash a flash plan to a device over fastboot
+    Flash {
         /// Path to the scatter file
         scatter: std::path::PathBuf,
 
-        /// Output full JSON of the parsed scatter
+        /// Dry run: verify device and plan without writing
         #[arg(long)]
-        full_json: bool,
-    },
-    /// Build and display a flash plan
-    Plan {
-        /// Path to the scatter file
-        scatter: std::path::PathBuf,
-
-        /// Output plan as JSON
-        #[arg(long)]
-        json: bool,
+        dry_run: bool,
 
         /// Enable verbose logging (trace level)
         #[arg(short, long)]
         verbose: bool,
 
         /// Flash planning mode
-        #[arg(long, default_value = "dry-run")]
+        #[arg(long, default_value = "selective")]
         mode: String,
 
         /// Storage layout selection
@@ -75,29 +56,87 @@ pub enum ScatterAction {
         #[arg(long)]
         firmware_dir: Option<std::path::PathBuf>,
 
-        /// Package root directory
-        #[arg(long)]
-        package_root: Option<std::path::PathBuf>,
-
         /// Verify image file existence and size
         #[arg(long)]
         check_images: bool,
 
-        /// Search for images by basename
-        #[arg(long)]
-        image_search: bool,
-
         /// Include preloader in dirty-flash mode
         #[arg(long)]
         include_preloader: bool,
+    },
+    /// Fastboot device operations
+    Device {
+        #[command(subcommand)]
+        action: DeviceAction,
+    },
+}
 
-        /// Allow incomplete slot pairs
+#[derive(Subcommand)]
+pub enum ScatterAction {
+    /// Print parsed scatter metadata
+    Parse {
+        scatter: std::path::PathBuf,
+        #[arg(long)]
+        full_json: bool,
+    },
+    /// Build and display a flash plan
+    Plan {
+        scatter: std::path::PathBuf,
+        #[arg(long)]
+        json: bool,
+        #[arg(short, long)]
+        verbose: bool,
+        #[arg(long, default_value = "dry-run")]
+        mode: String,
+        #[arg(long, default_value = "auto")]
+        storage: String,
+        #[arg(long)]
+        part: Vec<String>,
+        #[arg(long)]
+        group: Vec<String>,
+        #[arg(long)]
+        firmware_dir: Option<std::path::PathBuf>,
+        #[arg(long)]
+        package_root: Option<std::path::PathBuf>,
+        #[arg(long)]
+        check_images: bool,
+        #[arg(long)]
+        image_search: bool,
+        #[arg(long)]
+        include_preloader: bool,
         #[arg(long)]
         allow_incomplete_slots: bool,
     },
 }
 
-/// Parse `--mode` string value into [`Mode`].
+#[derive(Subcommand)]
+pub enum DeviceAction {
+    /// Show device info (all fastboot variables)
+    Info,
+    /// Reboot the device
+    Reboot {
+        /// Reboot target: system, bootloader, fastbootd, recovery, bootloader
+        #[arg(default_value = "system")]
+        target: String,
+    },
+    /// Lock the bootloader (flashing lock)
+    Lock,
+    /// Unlock the bootloader (flashing unlock)
+    Unlock,
+    /// Set the active slot
+    #[command(name = "set-active")]
+    SetActive {
+        /// Slot name: a or b
+        slot: String,
+    },
+    /// Get a fastboot variable
+    #[command(name = "get-var")]
+    GetVar {
+        /// Variable name (e.g., max-download-size, product, version)
+        var: String,
+    },
+}
+
 pub fn parse_mode(s: &str) -> Result<sp::Mode> {
     match s.to_lowercase().as_str() {
         "dry-run" | "dry_run" => Ok(sp::Mode::DryRun),
@@ -107,7 +146,6 @@ pub fn parse_mode(s: &str) -> Result<sp::Mode> {
     }
 }
 
-/// Parse `--storage` string value into [`StorageSelect`].
 pub fn parse_storage(s: &str) -> Result<sp::StorageSelect> {
     match s.to_lowercase().as_str() {
         "auto" => Ok(sp::StorageSelect::Auto),

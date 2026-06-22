@@ -1,45 +1,42 @@
 use anyhow::{Context, Result};
-use std::io::Write;
-use std::thread::sleep;
-use std::time::{Duration, Instant};
+use tokio::io::AsyncWriteExt;
+use tokio::time::{sleep, Duration, Instant};
 use tracing::{debug, info, trace, warn};
 
 use crate::cli::init_stderr_logging;
 use crate::force_fastboot::{fastboot, serial};
 
-/// Run the force-fastboot handshake loop.
-///
-/// Returns `Ok(())` on success or an error if something fails.
-pub fn run(verbose: bool) -> Result<()> {
+pub async fn run(verbose: bool) -> Result<()> {
     let default_level = if verbose { "trace" } else { "info" };
     init_stderr_logging(default_level);
 
     let start_all = Instant::now();
     info!("starting");
 
-    if fastboot::in_fastboot_mode() {
+    if fastboot::in_fastboot_mode().await {
         info!("already in fastboot mode — no handshake needed");
-        fastboot::list_fastboot_devices();
+        fastboot::list_fastboot_devices().await;
         info!(total_secs = start_all.elapsed().as_secs_f32(), sends = 0u64, "force-fastboot complete");
         return Ok(());
     }
 
     info!("waiting for preloader serial port");
 
-    let mut port = serial::wait_for_preloader(false)?
+    let mut port = serial::wait_for_preloader(false).await?
         .context("preloader wait returned without a port")?;
 
     info!(%port, "found preloader");
 
-    let mut dev = serial::open_serial(&port)?;
+    let mut dev = serial::open_serial(&port).await?;
     let mut count: u64 = 0;
     let start = Instant::now();
 
     loop {
         trace!(sends = count, elapsed = ?start.elapsed(), "writing FASTBOOT");
-        match dev.write_all(b"FASTBOOT") {
+        // SerialStream implements AsyncWriteExt
+        match dev.write_all(b"FASTBOOT").await {
             Ok(()) => {
-                let _ = dev.flush();
+                let _ = dev.flush().await;
                 count += 1;
 
                 if count % 5 == 0 {
@@ -49,7 +46,7 @@ pub fn run(verbose: bool) -> Result<()> {
             Err(err) => {
                 warn!(%err, %port, sends = count, "serial write failed");
 
-                if fastboot::in_fastboot_mode() {
+                if fastboot::in_fastboot_mode().await {
                     info!("fastboot mode detected after write failure");
                     break;
                 }
@@ -57,10 +54,10 @@ pub fn run(verbose: bool) -> Result<()> {
                 drop(dev);
                 warn!(%port, "port lost, waiting for reconnect");
 
-                if let Some(new_port) = serial::wait_for_preloader(true)? {
+                if let Some(new_port) = serial::wait_for_preloader(true).await? {
                     port = new_port;
                     info!(%port, "reconnected after port loss");
-                    dev = serial::open_serial(&port)?;
+                    dev = serial::open_serial(&port).await?;
                     continue;
                 }
 
@@ -69,18 +66,18 @@ pub fn run(verbose: bool) -> Result<()> {
             }
         }
 
-        if fastboot::in_fastboot_mode() {
+        if fastboot::in_fastboot_mode().await {
             info!(sends = count, "fastboot mode detected in main loop");
             break;
         }
 
-        sleep(Duration::from_millis(500));
+        sleep(Duration::from_millis(500)).await;
     }
 
     let elapsed = start.elapsed().as_secs_f32();
     info!(sends = count, elapsed_secs = elapsed, "handshake succeeded");
 
-    fastboot::list_fastboot_devices();
+    fastboot::list_fastboot_devices().await;
     info!(total_secs = start_all.elapsed().as_secs_f32(), sends = count, "force-fastboot complete");
     Ok(())
 }

@@ -2,25 +2,15 @@ use super::error::Error;
 use super::error::Result;
 use super::fastboot::in_fastboot_mode;
 use std::collections::HashSet;
-use std::thread::sleep;
-use std::time::Duration;
+use tokio::time::{sleep, Duration};
 use tracing::{debug, info, trace, warn};
 
-/// Baud rate used for preloader serial communication.
 const BAUD: u32 = 115_200;
-
-/// Polling interval when waiting for a preloader port to appear.
 const POLL_INTERVAL: Duration = Duration::from_millis(250);
-
-/// Serial-port timeout for reads and writes.
 const PORT_TIMEOUT: Duration = Duration::from_millis(250);
 
-/// Return the set of candidate serial port names visible on the system.
-///
-/// A candidate is a port that looks like a preloader port (e.g. `COM*` on
-/// Windows, `/dev/ttyACM*` or `/dev/ttyUSB*` on Linux).
 pub fn serial_ports() -> HashSet<String> {
-    let ports = match serialport::available_ports() {
+    let ports = match tokio_serial::available_ports() {
         Ok(ports) => ports,
         Err(err) => {
             warn!(%err, "failed to enumerate serial ports");
@@ -41,7 +31,6 @@ pub fn serial_ports() -> HashSet<String> {
         .collect()
 }
 
-/// Returns `true` when `name` looks like a plausible preloader serial port.
 fn is_candidate_serial_port(name: &str) -> bool {
     if cfg!(target_os = "windows") {
         name.to_ascii_uppercase().starts_with("COM")
@@ -52,17 +41,12 @@ fn is_candidate_serial_port(name: &str) -> bool {
     }
 }
 
-/// Open a serial port with the preloader baud rate and a short timeout.
-///
-/// # Errors
-///
-/// Returns [`Error::OpenSerialPort`] when the port cannot be opened (wrong
-/// path, permissions, or the port disappeared).
-pub fn open_serial(port: &str) -> Result<Box<dyn serialport::SerialPort>> {
+pub async fn open_serial(port: &str) -> Result<tokio_serial::SerialStream> {
     debug!(%port, baud = BAUD, "opening serial port");
-    serialport::new(port, BAUD)
+    use tokio_serial::SerialPortBuilderExt;
+    tokio_serial::new(port, BAUD)
         .timeout(PORT_TIMEOUT)
-        .open()
+        .open_native_async()
         .map_err(|source| Error::OpenSerialPort {
             port: port.to_owned(),
             source,
@@ -70,18 +54,7 @@ pub fn open_serial(port: &str) -> Result<Box<dyn serialport::SerialPort>> {
         .inspect(|_| info!(%port, "serial port opened"))
 }
 
-/// Wait for a new preloader serial port to appear.
-///
-/// Polls the system serial ports every 250 ms. Returns `Some(port_name)` when
-/// a new candidate port appears. When `check_fastboot` is `true`, also returns
-/// `None` if fastboot mode is detected before a port is found.
-///
-/// # Errors
-///
-/// Propagates [`Error::OpenSerialPort`] if a detected preloader port cannot
-/// be opened (though the call itself does not open the port — that is deferred
-/// to [`open_serial`]).
-pub fn wait_for_preloader(
+pub async fn wait_for_preloader(
     check_fastboot: bool,
 ) -> Result<Option<String>> {
     info!(check_fastboot, "waiting for preloader serial port");
@@ -92,7 +65,7 @@ pub fn wait_for_preloader(
         iterations += 1;
         trace!(iterations, ports = ?old, "polling for new serial port");
 
-        if check_fastboot && in_fastboot_mode() {
+        if check_fastboot && in_fastboot_mode().await {
             info!("fastboot detected while waiting for preloader, returning None");
             return Ok(None);
         }
@@ -109,7 +82,7 @@ pub fn wait_for_preloader(
             old = new;
         }
 
-        sleep(POLL_INTERVAL);
+        sleep(POLL_INTERVAL).await;
     }
 }
 
@@ -134,13 +107,12 @@ mod tests {
 
     #[test]
     fn serial_ports_should_not_panic_when_no_ports() {
-        // No hardware dependency — just checks error handling doesn't panic.
         let _ports = serial_ports();
     }
 
-    #[test]
-    fn open_serial_should_error_on_bogus_port() {
-        let err = open_serial("/dev/__force_fastboot_nonexistent__").unwrap_err();
+    #[tokio::test]
+    async fn open_serial_should_error_on_bogus_port() {
+        let err = open_serial("/dev/__force_fastboot_nonexistent__").await.unwrap_err();
         assert!(
             err.to_string().contains("/dev/__force_fastboot_nonexistent__"),
             "error should mention the port name: {err}",

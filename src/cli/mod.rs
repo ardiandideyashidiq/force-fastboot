@@ -4,6 +4,10 @@ pub mod args;
 pub mod force_fastboot;
 /// Scatter parse/plan CLI handler.
 pub mod scatter;
+/// Flash execution CLI handler.
+pub mod flash;
+/// Fastboot device operations CLI handler.
+pub mod device;
 
 /// Initialize stderr-only tracing for CLI commands.
 pub fn init_stderr_logging(level: &str) {

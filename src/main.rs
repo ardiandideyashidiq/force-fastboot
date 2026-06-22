@@ -2,7 +2,8 @@ use anyhow::Result;
 use clap::{CommandFactory, Parser};
 use pawflash::cli::args::{Cli, Commands, ScatterAction, parse_mode, parse_storage};
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
@@ -12,7 +13,7 @@ fn main() -> Result<()> {
             println!();
         }
         Some(Commands::ForceFastboot { verbose }) => {
-            pawflash::cli::force_fastboot::run(verbose)?;
+            pawflash::cli::force_fastboot::run(verbose).await?;
         }
         Some(Commands::Scatter { action }) => {
             match action {
@@ -51,6 +52,23 @@ fn main() -> Result<()> {
                     )?;
                 }
             }
+        }
+        Some(Commands::Flash { scatter, dry_run, verbose, mode, storage, part, group, firmware_dir, check_images, include_preloader }) => {
+            pawflash::cli::flash::run(
+                &scatter,
+                dry_run,
+                verbose,
+                parse_mode(&mode)?,
+                parse_storage(&storage)?,
+                part,
+                group,
+                firmware_dir,
+                check_images,
+                include_preloader,
+            ).await?;
+        }
+        Some(Commands::Device { action }) => {
+            pawflash::cli::device::run(action).await?;
         }
     }
 
