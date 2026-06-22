@@ -12,5 +12,5 @@ serialport = "4.9"
 nusb = "0.2"
 indicatif = "0.18"
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "registry"] }
 tracing-appender = "0.2"

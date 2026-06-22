@@ -19,3 +19,16 @@
 2026-06-22T12:19:06.066763Z  INFO fastboot detected while waiting for preloader
 2026-06-22T12:19:06.066878Z  INFO Fastboot mode detected after 6 sends in 14.5s
 2026-06-22T12:19:06.066899Z  INFO Handshake complete
+2026-06-22T12:25:30.668869Z  INFO Waiting for preloader...
+2026-06-22T12:25:58.154358Z  INFO new serial port appeared: /dev/ttyACM0
+2026-06-22T12:25:58.154453Z  INFO Found preloader on /dev/ttyACM0
+2026-06-22T12:25:59.704028Z  WARN serial write failed on /dev/ttyACM0: Broken pipe
+2026-06-22T12:25:59.708261Z  INFO Port lost, waiting for reconnect or fastboot...
+2026-06-22T12:26:03.288627Z  INFO new serial port appeared: /dev/ttyACM0
+2026-06-22T12:26:03.288735Z  INFO Reconnected on /dev/ttyACM0
+2026-06-22T12:26:03.833918Z  INFO Sent FASTBOOT x5
+2026-06-22T12:26:04.842875Z  WARN serial write failed on /dev/ttyACM0: Broken pipe
+2026-06-22T12:26:04.846625Z  INFO Port lost, waiting for reconnect or fastboot...
+2026-06-22T12:26:12.823851Z  INFO fastboot detected while waiting for preloader
+2026-06-22T12:26:12.824071Z  INFO Fastboot mode detected after 6 sends in 14.6s
+2026-06-22T12:26:12.825403Z  INFO Handshake complete
