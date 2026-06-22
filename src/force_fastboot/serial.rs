@@ -1,6 +1,6 @@
-use crate::error::Error;
-use crate::error::Result;
-use crate::fastboot::in_fastboot_mode;
+use super::error::Error;
+use super::error::Result;
+use super::fastboot::in_fastboot_mode;
 use indicatif::ProgressBar;
 use std::collections::HashSet;
 use std::thread::sleep;

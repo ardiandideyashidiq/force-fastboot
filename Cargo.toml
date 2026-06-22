@@ -1,12 +1,12 @@
 [package]
-name = "force-fastboot"
+name = "pawflash"
 version = "0.1.0"
-description = "Force a MediaTek device into fastboot mode via preloader serial handshake"
+description = "MTK device flashing toolkit — force fastboot, parse scatters, plan flashes"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/user/force-fastboot"
+repository = "https://github.com/user/pawflash"
 readme = "README.md"
-keywords = ["fastboot", "mediatek", "preloader", "android", "usb"]
-categories = ["hardware-support", "command-line-utilities"]
+keywords = ["fastboot", "mediatek", "preloader", "android", "scatter"]
+categories = ["hardware-support", "command-line-utilities", "development-tools"]
 edition = "2024"
 rust-version = "1.85"
 
@@ -16,7 +16,6 @@ unused = "deny"
 [lints.clippy]
 all = { level = "warn", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
-# --- deny group: must-fix ---
 cargo_common_metadata = "deny"
 cast_lossless = "deny"
 doc_markdown = "deny"
@@ -24,15 +23,26 @@ large_enum_variant = "deny"
 missing_const_for_fn = "deny"
 needless_pass_by_value = "deny"
 redundant_clone = "deny"
-# --- perf ---
 perf = "deny"
 
 [dependencies]
 anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+encoding_rs = "0.8"
 indicatif = "0.18"
 nusb = "0.2"
+quick-xml = "0.38"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
 serialport = "4.9"
+sha2 = "0.10"
 thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "registry"] }
 tracing-appender = "0.2"
+
+[dev-dependencies]
+assert_cmd = "2"
+predicates = "3"
+tempfile = "3"

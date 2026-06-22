@@ -1,18 +1,14 @@
 #![warn(missing_docs)]
 
-//! Force a `MediaTek` device into fastboot mode by repeatedly sending the
-//! `FASTBOOT` handshake over its preloader serial port.
+//! `pawflash` — MTK device flashing toolkit.
 //!
-//! # Overview
+//! # Modules
 //!
-//! The library provides:
-//! - [`fastboot`] — USB-based fastboot mode detection and device listing
-//! - [`serial`] — serial port scanning, opening, and preloader waiting
-//! - [`error`] — reusable error types backed by `thiserror`
+//! - [`force_fastboot`] — force a device into fastboot mode via preloader serial
+//! - [`scatter_parser`] — parse `MediaTek` scatter manifests and build flash plans
+//! - [`cli`] — CLI handlers for each subcommand
 
-/// Reusable error types for serial-port and USB operations.
-pub mod error;
-/// Fastboot mode detection and device listing over USB.
-pub mod fastboot;
-/// Serial-port scanning, opening, and preloader handshake waits.
-pub mod serial;
+/// CLI subcommand handlers.
+pub mod cli;
+pub mod force_fastboot;
+pub mod scatter_parser;
