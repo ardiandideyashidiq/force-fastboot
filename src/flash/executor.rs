@@ -439,6 +439,21 @@ impl FlashExecutor {
         FlashResult { total, succeeded, failed, outcomes }
     }
 
+    /// Flash the vendored empty vbmeta image to both slots.
+    /// This disables dm-verity and AVB verification (flags=3).
+    pub async fn flash_empty_vbmeta(&mut self) -> Result<()> {
+        let data = crate::flash::vbmeta::EMPTY_VBMETA;
+        for slot in &["a", "b"] {
+            let partition = format!("vbmeta_{slot}");
+            info!(%partition, "flashing empty vbmeta");
+            let mut sender = self.fb.download(data.len() as u32).await?;
+            sender.extend_from_slice(data).await?;
+            sender.finish().await?;
+            self.fb.flash(&partition).await?;
+        }
+        Ok(())
+    }
+
     /// Flash a raw image to a partition. Public entry point for `flash-raw`.
     pub async fn flash_raw_image(
         &mut self,

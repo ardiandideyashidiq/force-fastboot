@@ -80,6 +80,9 @@ async fn main() -> Result<()> {
         Some(Commands::FlashRaw { .. }) => {
             print_help("flash-raw")?;
         }
+        Some(Commands::DisableVbmeta { verbose }) => {
+            pawflash::cli::disable_vbmeta::run(verbose).await?;
+        }
         Some(Commands::Device { action }) => {
             pawflash::cli::device::run(action).await?;
         }

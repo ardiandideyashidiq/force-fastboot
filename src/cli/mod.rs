@@ -12,6 +12,8 @@ pub mod device;
 pub mod format_data;
 /// Flash-raw CLI handler.
 pub mod flash_raw;
+/// Disable-vbmeta CLI handler.
+pub mod disable_vbmeta;
 
 /// Initialize stderr-only tracing for CLI commands.
 pub fn init_stderr_logging(level: &str) {

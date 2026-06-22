@@ -90,6 +90,14 @@ pub enum Commands {
         #[arg(short, long)]
         verbose: bool,
     },
+    /// Flash empty vbmeta to both slots, disabling dm-verity and AVB verification.
+    /// Equivalent to: --disable-verity --disable-verification --slot=all
+    #[command(name = "disable-vbmeta")]
+    DisableVbmeta {
+        /// Enable verbose logging (trace level)
+        #[arg(short, long)]
+        verbose: bool,
+    },
     /// Fastboot device operations
     Device {
         #[command(subcommand)]
