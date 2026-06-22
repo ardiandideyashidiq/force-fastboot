@@ -37,6 +37,7 @@ fn main() -> Result<()> {
     if fastboot::in_fastboot_mode() {
         pb.finish_with_message("Already in fastboot mode — no handshake needed");
         info!("Already in fastboot mode — no handshake needed");
+        fastboot::list_fastboot_devices();
         return Ok(());
     }
 
@@ -104,6 +105,8 @@ fn main() -> Result<()> {
         "Fastboot mode detected after {count} sends in {elapsed:.1}s"
     ));
     info!("Fastboot mode detected after {count} sends in {elapsed:.1}s");
+
+    fastboot::list_fastboot_devices();
 
     println!("Handshake complete");
     info!("Handshake complete");

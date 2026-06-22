@@ -3,6 +3,18 @@ use std::fs;
 use std::path::Path;
 use tracing::warn;
 
+pub fn list_fastboot_devices() {
+    let Ok(devices) = nusb::list_devices().wait() else { return };
+    for dev in devices.filter(|d| {
+        d.interfaces()
+            .any(|i| i.class() == 0xff && i.subclass() == 0x42 && i.protocol() == 0x03)
+    }) {
+        let serial = dev.serial_number().unwrap_or("?").to_string();
+        let vidpid = format!("{:04x}:{:04x}", dev.vendor_id(), dev.product_id());
+        println!("{serial:22}\tfastboot\t{vidpid}");
+    }
+}
+
 pub fn in_fastboot_mode() -> bool {
     nusb_fastboot_mode() || linux_sysfs_fastboot_mode()
 }
