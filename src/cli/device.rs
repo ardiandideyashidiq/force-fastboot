@@ -4,6 +4,7 @@ use tracing::{debug, info};
 use crate::cli::args::DeviceAction;
 use crate::flash::executor::BootTarget;
 use crate::flash::FlashExecutor;
+use crate::output;
 
 /// Run a fastboot device operation.
 ///
@@ -13,16 +14,12 @@ use crate::flash::FlashExecutor;
 pub async fn run(action: DeviceAction) -> Result<()> {
     debug!("device command: {action:?}");
 
-    info!("connecting to fastboot device");
-    let mut executor = FlashExecutor::connect().await?;
+    let mut executor = output::spinner::run_with_spinner("Connecting to fastboot device...", FlashExecutor::connect()).await?;
 
     match action {
         DeviceAction::Info => {
             let vars = executor.get_all_vars().await?;
-            println!("=== Fastboot Device Info ===");
-            for (key, value) in &vars {
-                println!("  {key}: {value}");
-            }
+            println!("{}", output::tables::device_info(&vars));
         }
         DeviceAction::Reboot { target } => {
             info!(%target, "rebooting device");
@@ -34,17 +31,12 @@ pub async fn run(action: DeviceAction) -> Result<()> {
                 _ => anyhow::bail!("unknown reboot target '{target}': expected system, bootloader, fastbootd, or recovery"),
             };
             executor.reboot_to(boot_target).await?;
-            info!(%target, "reboot command sent");
         }
         DeviceAction::Lock => {
-            info!("locking bootloader");
             executor.flashing_lock().await?;
-            info!("bootloader locked");
         }
         DeviceAction::Unlock => {
-            info!("unlocking bootloader");
             executor.flashing_unlock().await?;
-            info!("bootloader unlocked");
         }
         DeviceAction::SetActive { slot } => {
             if slot != "a" && slot != "b" {

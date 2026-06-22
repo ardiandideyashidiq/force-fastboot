@@ -5,6 +5,7 @@ use tracing::info;
 
 use crate::flash::FlashExecutor;
 use crate::gsi::GsiEvent;
+use crate::output;
 
 /// Handler for `pawflash flash gsi <image>`.
 ///
@@ -18,11 +19,15 @@ pub async fn run(image: &Path) -> Result<()> {
     }
     let image = image.canonicalize()?;
 
-    info!(image = %image.display(), "connecting to fastboot device");
-    let executor = FlashExecutor::connect().await?;
+    let executor = output::spinner::run_with_spinner(
+        "Connecting to fastboot device...",
+        FlashExecutor::connect(),
+    )
+    .await?;
 
-    info!("starting GSI flash");
-    let report = |event: GsiEvent| print_gsi_event(&event);
+    info!(image = %image.display(), "starting GSI flash");
+
+    let report = |event: GsiEvent| log_gsi_event(&event);
 
     let outcome = crate::gsi::execute_gsi_flash(executor, &image, report).await?;
 
@@ -35,7 +40,7 @@ pub async fn run(image: &Path) -> Result<()> {
     Ok(())
 }
 
-fn print_gsi_event(event: &GsiEvent) {
+fn log_gsi_event(event: &GsiEvent) {
     match event {
         GsiEvent::Step(step) => info!("[gsi] {}", step.as_str()),
         GsiEvent::ModeDetected(mode) => info!("[gsi] detected mode: {}", mode.as_str()),

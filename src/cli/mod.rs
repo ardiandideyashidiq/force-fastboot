@@ -15,12 +15,21 @@ pub mod gsi;
 /// Interactive flash prompt flow.
 pub mod interactive;
 
-/// Initialize stderr-only tracing for CLI commands.
-pub fn init_stderr_logging(level: &str) {
+/// Initialize tracing subscriber and output verbosity.
+pub fn init_logging(verbosity: u8) {
     use tracing_subscriber::{fmt, prelude::*, registry::Registry, EnvFilter};
 
+    crate::output::set_verbosity(verbosity);
+
+    let level_str = match verbosity {
+        0 => "off",
+        1 => "info",
+        2 => "debug",
+        _ => "trace",
+    };
+
     let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new(level));
+        .unwrap_or_else(|_| EnvFilter::new(level_str));
 
     let subscriber = Registry::default()
         .with(filter)

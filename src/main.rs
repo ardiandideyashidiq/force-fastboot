@@ -1,15 +1,23 @@
-use anyhow::Result;
+use std::process;
+
 use clap::{CommandFactory, Parser};
 use pawflash::cli::args::{Cli, Commands};
-use pawflash::cli::init_stderr_logging;
+use pawflash::cli::init_logging;
+use colored::Colorize as _;
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() {
     let cli = Cli::parse();
 
-    let level = if cli.verbose { "debug" } else { "info" };
-    init_stderr_logging(level);
+    init_logging(cli.verbose);
 
+    if let Err(err) = run(cli).await {
+        eprintln!("{} {err:#}", "error:".red().bold());
+        process::exit(1);
+    }
+}
+
+async fn run(cli: Cli) -> anyhow::Result<()> {
     match cli.command {
         None => {
             let mut cmd = Cli::command();

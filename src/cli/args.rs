@@ -6,9 +6,9 @@ use crate::scatter_parser as sp;
 #[command(name = "pawflash", about = "MTK device flashing toolkit", version)]
 #[command(args_conflicts_with_subcommands = true)]
 pub struct Cli {
-    /// Enable verbose (debug-level) logging
-    #[arg(short, long, global = true)]
-    pub verbose: bool,
+    /// Logging verbosity: -v = info, -vv = debug, -vvv = trace
+    #[arg(short, long, global = true, action = clap::ArgAction::Count)]
+    pub verbose: u8,
     #[command(subcommand)]
     pub command: Option<Commands>,
 }

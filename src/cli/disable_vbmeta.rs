@@ -1,7 +1,8 @@
 use anyhow::Result;
-use tracing::{debug, info};
+use tracing::debug;
 
 use crate::flash::FlashExecutor;
+use crate::output;
 
 /// Flash the vendored empty vbmeta image to both slots with AVB flags=3.
 /// This disables dm-verity and AVB verification.
@@ -12,12 +13,20 @@ use crate::flash::FlashExecutor;
 pub async fn run() -> Result<()> {
     debug!("disable-vbmeta started");
 
-    info!("connecting to fastboot device");
-    let mut executor = FlashExecutor::connect().await?;
+    let mut executor = output::spinner::run_with_spinner(
+        "Connecting to fastboot device...",
+        FlashExecutor::connect(),
+    )
+    .await?;
 
-    executor.flash_empty_vbmeta().await?;
+    output::spinner::run_with_spinner(
+        "Disabling vbmeta verification...",
+        async {
+            executor.flash_empty_vbmeta().await
+        },
+    )
+    .await?;
 
-    info!("vbmeta disabled — dm-verity and AVB verification are now off");
     debug!("disable-vbmeta completed");
     Ok(())
 }

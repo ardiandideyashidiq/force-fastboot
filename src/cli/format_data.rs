@@ -1,8 +1,9 @@
 use anyhow::Result;
-use tracing::{debug, info};
+use tracing::debug;
 
 use crate::flash::FlashExecutor;
 use crate::format::generator;
+use crate::output;
 
 /// Erase and format userdata, cache, and metadata.
 ///
@@ -13,11 +14,22 @@ pub async fn run(fs_options: Vec<String>) -> Result<()> {
     let fs_options = generator::parse_fs_options(&fs_options);
 
     debug!(?fs_options, "format-data started");
-    info!(?fs_options, "connecting to fastboot device");
-    let mut executor = FlashExecutor::connect().await?;
 
-    let result = executor.format_data(fs_options).await;
-    info!(outcomes = result.outcomes.len(), "format-data done");
+    let mut executor = output::spinner::run_with_spinner(
+        "Connecting to fastboot device for format-data...",
+        FlashExecutor::connect(),
+    )
+    .await?;
+
+    output::spinner::run_with_spinner(
+        "Formatting userdata, cache, metadata...",
+        async {
+            executor.format_data(fs_options).await;
+        },
+    )
+    .await;
+
+    debug!("format-data done");
 
     Ok(())
 }

@@ -2,13 +2,14 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
 use clap::CommandFactory;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 use crate::cli::args::{Cli, FlashAction};
 use crate::flash::FlashExecutor;
+use crate::output;
 use crate::scatter_parser as sp;
 
-    /// Grouped config for scatter operations. Avoids passing 14 individual arguments.
+/// Grouped config for scatter operations. Avoids passing 14 individual arguments.
 #[expect(clippy::struct_excessive_bools)]
 struct ScatterConfig<'a> {
     scatter_path: &'a Path,
@@ -76,8 +77,6 @@ pub async fn run(
             };
             let scatter_path = p.clone();
 
-            // When no explicit parts/groups and mode is selective (default),
-            // launch interactive mode instead of returning an empty plan.
             if !show
                 && !dry_run
                 && mode == sp::Mode::Selective
@@ -136,12 +135,12 @@ async fn run_scatter(cfg: &ScatterConfig<'_>) -> Result<()> {
         "run_scatter entered",
     );
 
-    // ── Mode 1: Show scatter metadata (was: scatter parse) ──────────
+    // ── Mode 1: Show scatter metadata ────────────────────────────
     if cfg.show {
         return show_scatter_metadata(cfg.scatter_path, cfg.full_json);
     }
 
-    // ── Parse scatter and build plan (shared) ──────────────────────
+    // ── Parse scatter and build plan (shared) ────────────────────
     info!(scatter_path = %cfg.scatter_path.display(), "parsing scatter file");
     let parsed = sp::parse_scatter(cfg.scatter_path)
         .with_context(|| format!("failed to parse {}", cfg.scatter_path.display()))?;
@@ -170,11 +169,9 @@ async fn run_scatter(cfg: &ScatterConfig<'_>) -> Result<()> {
     let plan = sp::build_flash_plan(&parsed, options);
     debug!(actions = plan.actions.len(), skipped = plan.skipped.len(), "flash plan built");
 
+    // Show errors early (before bail! so user sees them)
     if !plan.errors.is_empty() {
-        error!("flash plan has errors:");
-        for e in &plan.errors {
-            error!("  - {e}");
-        }
+        eprintln!("{}", output::tables::plan_errors(&plan).unwrap_or_default());
         if !cfg.dry_run {
             bail!("flash plan errors prevent execution (use --dry-run to see full report)");
         }
@@ -184,20 +181,23 @@ async fn run_scatter(cfg: &ScatterConfig<'_>) -> Result<()> {
         bail!("flash plan has no actions to execute");
     }
 
-    // ── Mode 2: Dry run — print plan (was: scatter plan) ──────────
+    // ── Mode 2: Dry run ─────────────────────────────────────────
     if cfg.dry_run {
         return print_plan(&plan, cfg.json);
     }
 
-    // ── Mode 3: Execute (was: flash) ────────────────────────────────
+    // ── Mode 3: Execute ─────────────────────────────────────────
     info!(
         actions = plan.actions.len(),
         skipped = plan.skipped.len(),
         "plan built",
     );
 
-    info!("connecting to fastboot device");
-    let mut executor = FlashExecutor::connect().await?;
+    let mut executor = output::spinner::run_with_spinner(
+        "Connecting to fastboot device...",
+        FlashExecutor::connect(),
+    )
+    .await?;
     debug!("connected, executing flash plan");
 
     let result = executor.execute_plan(&plan, false, None).await;
@@ -209,11 +209,7 @@ async fn run_scatter(cfg: &ScatterConfig<'_>) -> Result<()> {
         "flash execution summary",
     );
 
-    for outcome in &result.outcomes {
-        if let Some(ref err) = outcome.error {
-            error!(partition = outcome.partition, error = %err, "flash failed");
-        }
-    }
+    eprintln!("{}", output::tables::flash_result(&result));
 
     if result.failed > 0 {
         bail!(
@@ -247,33 +243,16 @@ fn show_scatter_metadata(path: &Path, full_json: bool) -> Result<()> {
         }))?;
         println!("{output}");
     } else {
-        println!("Scatter: {}", scatter.path.display());
-        println!("Format:  {}", scatter.format);
-        println!("Hash:    {}", scatter.text_hash);
-        if let Some(platform) = &scatter.platform {
-            println!("Platform: {platform}");
+        println!("{}", output::tables::scatter_metadata(&scatter));
+        if let Some(w) = output::tables::scatter_warnings(&scatter) {
+            println!();
+            println!("{}", output::theme::warn("Warnings:"));
+            println!("{w}");
         }
-        if let Some(project) = &scatter.project {
-            println!("Project:  {project}");
-        }
-        if let Some(chipset) = scatter.chipset() {
-            println!("Chipset:  {chipset}");
-        }
-        println!("Layouts:  {}", scatter.layouts.len());
-        for (layout, parts) in &scatter.layouts {
-            println!("  {layout}: {} partitions", parts.len());
-        }
-        if !scatter.warnings.is_empty() {
-            println!("\nWarnings ({}):", scatter.warnings.len());
-            for w in &scatter.warnings {
-                println!("  - {w}");
-            }
-        }
-        if !scatter.errors.is_empty() {
-            eprintln!("\nErrors ({}):", scatter.errors.len());
-            for e in &scatter.errors {
-                eprintln!("  - {e}");
-            }
+        if let Some(e) = output::tables::scatter_errors(&scatter) {
+            println!();
+            println!("{}", output::theme::error("Errors:"));
+            println!("{e}");
         }
     }
 
@@ -287,47 +266,34 @@ fn print_plan(plan: &sp::FlashPlan, json: bool) -> Result<()> {
         let output = serde_json::to_string_pretty(plan)?;
         println!("{output}");
     } else {
-        info!(
-            mode = plan.mode,
-            layouts = %plan.selected_layouts.join(","),
-            platform = plan.platform.as_deref().unwrap_or("(unknown)"),
-            project = plan.project.as_deref().unwrap_or("(unknown)"),
-            flash_actions = plan.summary.flash_count,
-            skipped = plan.summary.skipped_count,
-            "plan summary",
-        );
-
-        for action in &plan.actions {
-            let img = action.image_resolved_path().unwrap_or("(none)");
-            info!(
-                action = action.action,
-                partition = action.partition,
-                image = img,
-                reason = action.reason,
-                "flash action",
-            );
+        println!("{}", output::theme::heading("Flash Plan"));
+        println!();
+        println!("{}", output::tables::plan_summary(plan));
+        println!();
+        if !plan.actions.is_empty() {
+            println!("{}", output::tables::plan_actions(plan));
         }
-
-        for s in &plan.skipped {
-            info!(
-                partition = s.partition,
-                reason = s.reason,
-                "skipped partition",
-            );
+        if let Some(s) = output::tables::plan_skipped(plan) {
+            println!();
+            println!("{}", output::theme::dim("Skipped partitions:"));
+            println!("{s}");
         }
-
-        for w in &plan.warnings {
-            warn!("{w}");
+        if let Some(w) = output::tables::plan_warnings(plan) {
+            println!();
+            println!("{}", output::theme::warn("Warnings:"));
+            println!("{w}");
         }
-        for e in &plan.errors {
-            error!("{e}");
+        if let Some(e) = output::tables::plan_errors(plan) {
+            println!();
+            println!("{}", output::theme::error("Errors:"));
+            println!("{e}");
         }
     }
 
     Ok(())
 }
 
-// ── Raw image flash (was: flash-raw) ────────────────────────────────
+// ── Raw image flash ─────────────────────────────────────────────────
 
 async fn run_raw_image(
     partition: &str,
@@ -350,15 +316,12 @@ async fn run_raw_image(
     let image = image.canonicalize().context("failed to resolve image path")?;
 
     debug!(%partition, image = %image.display(), ?slot, both, "raw image flash requested");
-    info!(
-        partition,
-        image = %image.display(),
-        ?slot,
-        both,
-        "connecting to fastboot device",
-    );
 
-    let mut executor = FlashExecutor::connect().await?;
+    let mut executor = output::spinner::run_with_spinner(
+        "Connecting to fastboot device...",
+        FlashExecutor::connect(),
+    )
+    .await?;
 
     let targets: Vec<String> = if both {
         vec![format!("{partition}_a"), format!("{partition}_b")]
@@ -385,7 +348,7 @@ async fn run_raw_image(
                 succeeded += 1;
             }
             Err(e) => {
-                error!(partition = %target, error = %e, "flash failed");
+                tracing::error!(partition = %target, error = %e, "flash failed");
                 failed += 1;
             }
         }

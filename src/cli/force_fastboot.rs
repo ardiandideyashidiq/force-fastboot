@@ -4,6 +4,7 @@ use tokio::time::{sleep, Duration, Instant};
 use tracing::{debug, info, trace, warn};
 
 use crate::force_fastboot::{fastboot, serial};
+use crate::output;
 
 /// Force a `MediaTek` device into fastboot mode via preloader handshake.
 ///
@@ -33,9 +34,10 @@ pub async fn run() -> Result<()> {
     let mut count: u64 = 0;
     let start = Instant::now();
 
+    let spinner = output::spinner::start("Waiting for preloader handshake...");
+
     loop {
         trace!(sends = count, elapsed = ?start.elapsed(), "writing FASTBOOT");
-        // SerialStream implements AsyncWriteExt
         match dev.write_all(b"FASTBOOT").await {
             Ok(()) => {
                 let _ = dev.flush().await;
@@ -49,7 +51,7 @@ pub async fn run() -> Result<()> {
                 warn!(%err, %port, sends = count, "serial write failed");
 
                 if fastboot::in_fastboot_mode().await {
-                    info!("fastboot mode detected after write failure");
+                    debug!("fastboot mode detected after write failure");
                     break;
                 }
 
@@ -58,26 +60,28 @@ pub async fn run() -> Result<()> {
 
                 if let Some(new_port) = serial::wait_for_preloader(true).await? {
                     port = new_port;
-                    info!(%port, "reconnected after port loss");
+                    debug!(%port, "reconnected after port loss");
                     dev = serial::open_serial(&port)?;
                     continue;
                 }
 
-                info!("preloader wait returned None — fastboot detected");
+                debug!("preloader wait returned None — fastboot detected");
                 break;
             }
         }
 
         if fastboot::in_fastboot_mode().await {
-            info!(sends = count, "fastboot mode detected in main loop");
+            debug!(sends = count, "fastboot mode detected in main loop");
             break;
         }
 
         sleep(Duration::from_millis(500)).await;
     }
 
+    output::spinner::succeed(&spinner);
+
     let elapsed = start.elapsed().as_secs_f32();
-    info!(sends = count, elapsed_secs = elapsed, "handshake succeeded");
+    debug!(sends = count, elapsed_secs = elapsed, "handshake succeeded");
     debug!(sends = count, elapsed_secs = elapsed, "force-fastboot handshake loop exited");
 
     fastboot::list_fastboot_devices().await;
