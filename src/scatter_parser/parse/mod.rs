@@ -13,7 +13,7 @@ use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use crate::scatter_parser::error::{Error, Result};
 use crate::scatter_parser::types::{ScatterFile, ScatterPartition};
-use crate::scatter_parser::util::region_family;
+use crate::scatter_parser::util::{region_family, storage_family};
 
 const NONE_TOKENS: &[&str] = &["", "NONE", "NULL", "N/A", "NA", "0"];
 
@@ -119,6 +119,18 @@ fn looks_like_xml(text: &str) -> bool {
 
 // --- Partition normalization ---
 
+/// Infer effective storage layout from region/storage fields.
+/// If region or storage indicates UFS, it's UFS; otherwise EMMC.
+fn effective_layout(region: &str, storage: Option<&str>) -> String {
+    if region_family(region) == "UFS"
+        || storage_family(storage, None, Some(region)) == "UFS"
+    {
+        "UFS".to_string()
+    } else {
+        "EMMC".to_string()
+    }
+}
+
 fn normalize_partition(
     path: &Path,
     layout: &str,
@@ -143,9 +155,16 @@ fn normalize_partition(
         .map(|(key, value)| (key.clone(), value.clone()))
         .collect();
 
+    let region = value_to_string(get_first(&entry, &["region"]))
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| "UNKNOWN".to_string());
+    let storage = normalize_none_string(get_first(&entry, &["storage"]));
+    let ef_layout = effective_layout(&region, storage.as_deref());
+
     Ok(ScatterPartition {
         source: path.to_string_lossy().into_owned(),
-        layout: layout.to_string(),
+        layout: ef_layout,
         index: normalize_none_string(get_first(&entry, &["partition_index"])),
         name,
         file_name,
@@ -167,11 +186,8 @@ fn normalize_partition(
             "partition_size",
             0,
         )?,
-        region: value_to_string(get_first(&entry, &["region"]))
-            .map(|v| v.trim().to_string())
-            .filter(|v| !v.is_empty())
-            .unwrap_or_else(|| "UNKNOWN".to_string()),
-        storage: normalize_none_string(get_first(&entry, &["storage"])),
+        region,
+        storage,
         boundary_check: parse_bool(get_first(&entry, &["boundary_check"]), true),
         is_reserved: parse_bool(get_first(&entry, &["is_reserved"]), false),
         operation_type: normalize_none_string(get_first(&entry, &["operation_type"])),
@@ -205,26 +221,6 @@ fn validate_layouts(
             }
             if part.linear_start < 0 || part.physical_start < 0 {
                 errors.push(format!("{layout}/{}: negative address", part.name));
-            }
-            let rf = region_family(&part.region);
-            let sf = part.storage_family();
-            if matches!(layout.to_uppercase().as_str(), "UFS" | "EMMC")
-                && matches!(rf.as_str(), "UFS" | "EMMC")
-                && layout.to_uppercase() != rf
-            {
-                warnings.push(format!(
-                    "{layout}/{}: layout is {layout} but region family is {rf}",
-                    part.name
-                ));
-            }
-            if matches!(layout.to_uppercase().as_str(), "UFS" | "EMMC")
-                && matches!(sf.as_str(), "UFS" | "EMMC")
-                && layout.to_uppercase() != sf
-            {
-                warnings.push(format!(
-                    "{layout}/{}: layout is {layout} but storage family is {sf}",
-                    part.name
-                ));
             }
             let key = (part.region.clone(), part.name.to_lowercase());
             if let Some(old) = seen.get(&key) {
