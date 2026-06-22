@@ -2,7 +2,7 @@
 rustflags = ["-C", "target-cpu=native"]
 
 [profile.release]
-lto = "fat"
+lto = "thin"
 codegen-units = 1
 strip = "symbols"
 opt-level = 3
