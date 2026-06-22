@@ -134,7 +134,7 @@ async fn handle_flash_result(
 /// Run the interactive flash flow: show plan, confirm, execute with progress,
 /// then optionally format data and reboot.
 #[allow(clippy::missing_panics_doc, clippy::missing_errors_doc)]
-pub async fn run(scatter_path: &Path, exclude: &[String]) -> Result<()> {
+pub async fn run(scatter_path: &Path, exclude: &[String], clean: bool) -> Result<()> {
     let parsed = sp::parse_scatter(scatter_path)
         .with_context(|| format!("failed to parse {}", scatter_path.display()))?;
 
@@ -146,6 +146,7 @@ pub async fn run(scatter_path: &Path, exclude: &[String]) -> Result<()> {
             check_images: true,
             image_search: true,
             exclude: exclude.to_vec(),
+            clean,
             ..Default::default()
         },
     );

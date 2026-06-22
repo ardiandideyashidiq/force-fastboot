@@ -222,6 +222,8 @@ pub struct FlashPlanOptions {
     pub include_preloader: bool,
     /// Whether to allow incomplete slot pairs.
     pub allow_incomplete_slots: bool,
+    /// Include userdata in the flash plan.
+    pub clean: bool,
 }
 
 impl Default for FlashPlanOptions {
@@ -238,6 +240,7 @@ impl Default for FlashPlanOptions {
             image_search: false,
             include_preloader: false,
             allow_incomplete_slots: false,
+            clean: false,
         }
     }
 }

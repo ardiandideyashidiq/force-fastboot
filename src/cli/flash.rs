@@ -8,7 +8,7 @@ use crate::cli::args::{Cli, FlashAction};
 use crate::flash::FlashExecutor;
 use crate::scatter_parser as sp;
 
-/// Grouped config for scatter operations. Avoids passing 14 individual arguments.
+    /// Grouped config for scatter operations. Avoids passing 14 individual arguments.
 #[expect(clippy::struct_excessive_bools)]
 struct ScatterConfig<'a> {
     scatter_path: &'a Path,
@@ -26,6 +26,7 @@ struct ScatterConfig<'a> {
     include_preloader: bool,
     image_search: bool,
     allow_incomplete_slots: bool,
+    clean: bool,
 }
 
 fn print_flash_help() -> Result<()> {
@@ -62,6 +63,7 @@ pub async fn run(
             ref part,
             ref group,
             ref exclude,
+            clean,
             ref firmware_dir,
             check_images,
             include_preloader,
@@ -83,7 +85,7 @@ pub async fn run(
                 && group.is_empty()
                 && !json
             {
-                return crate::cli::interactive::run(&scatter_path, exclude).await;
+                return crate::cli::interactive::run(&scatter_path, exclude, clean).await;
             }
 
             let cfg = ScatterConfig {
@@ -98,6 +100,7 @@ pub async fn run(
                 groups: group,
                 exclude,
                 firmware_dir: firmware_dir.as_deref(),
+                clean,
                 check_images,
                 include_preloader,
                 image_search,
@@ -157,6 +160,7 @@ async fn run_scatter(cfg: &ScatterConfig<'_>) -> Result<()> {
         image_search: cfg.image_search,
         include_preloader: cfg.include_preloader,
         allow_incomplete_slots: cfg.allow_incomplete_slots,
+        clean: cfg.clean,
     };
 
     info!("building flash plan");

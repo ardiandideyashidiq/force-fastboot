@@ -55,6 +55,7 @@ pub(crate) fn mode_allows_partition(
     image_source: &ScatterPartition,
     mode: Mode,
     include_preloader: bool,
+    clean: bool,
 ) -> (bool, String) {
     let canonical = part.canonical();
     let safety = part.safety_class();
@@ -85,6 +86,9 @@ pub(crate) fn mode_allows_partition(
         Mode::DirtyFlash => {
             if !flashable {
                 return (false, "not selected by scatter profile or no image".to_string());
+            }
+            if clean && canonical == "userdata" {
+                return (true, "allowed by --clean".to_string());
             }
             if BOOTLOADER_CANONICAL.contains(&canonical.as_str())
                 || BOOT_CHAIN_CANONICAL.contains(&canonical.as_str())

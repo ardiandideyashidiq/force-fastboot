@@ -98,6 +98,9 @@ pub enum FlashAction {
         /// Flash even if some slots are incomplete
         #[arg(long)]
         allow_incomplete_slots: bool,
+        /// Flash userdata as well (clean install)
+        #[arg(long)]
+        clean: bool,
     },
 }
 

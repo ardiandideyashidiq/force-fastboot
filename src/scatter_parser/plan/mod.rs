@@ -67,7 +67,7 @@ pub fn build_flash_plan(scatter: &ScatterFile, options: FlashPlanOptions) -> Fla
         let image_source =
             slot::inherited_image_source_for_slot_b(part, &parts_by_name);
         let (allowed, reason) =
-            mode::mode_allows_partition(part, image_source, options.mode, options.include_preloader);
+            mode::mode_allows_partition(part, image_source, options.mode, options.include_preloader, options.clean);
         if !allowed {
             skipped.push(action::skipped_partition(part, &reason));
             continue;
@@ -195,6 +195,7 @@ pub fn build_flash_plan(scatter: &ScatterFile, options: FlashPlanOptions) -> Fla
             "image_search": options.image_search,
             "include_preloader": options.include_preloader,
             "allow_incomplete_slots": options.allow_incomplete_slots,
+            "clean": options.clean,
             "parts": options.parts,
             "groups": options.groups,
             "exclude": options.exclude,
