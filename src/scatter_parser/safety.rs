@@ -3,7 +3,7 @@
 //! These tables mirror the Python scatter parser's partition groupings and
 //! determine which partitions are flashable in each mode.
 
-use crate::scatter_parser::types::split_base_slot;
+use crate::scatter_parser::util::split_base_slot;
 
 pub(crate) const BOOTLOADER_CANONICAL: &[&str] = &[
     "preloader", "lk", "loader_ext", "tee", "trustzone", "tz",

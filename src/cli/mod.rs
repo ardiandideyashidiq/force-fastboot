@@ -1,3 +1,5 @@
+/// CLI argument types.
+pub mod args;
 /// Force-fastboot handshake loop CLI handler.
 pub mod force_fastboot;
 /// Scatter parse/plan CLI handler.

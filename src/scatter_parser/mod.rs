@@ -19,15 +19,20 @@
 pub mod error;
 /// Scatter file parsing (XML and YAML) and helper functions.
 pub mod parse;
+/// Image file path resolution.
+pub mod path;
 /// Flash plan builder.
 pub mod plan;
 /// Partition name canonicalization and safety classification.
 pub mod safety;
 /// Core data structures.
 pub mod types;
+/// Shared utility functions.
+pub mod util;
 
 pub use error::{Error, Result};
-pub use parse::{human_size, image_magic, parse_int, parse_scatter, resolve_image_path};
+pub use parse::{human_size, image_magic, parse_int, parse_scatter};
+pub use path::resolve_image_path;
 pub use plan::build_flash_plan;
 pub use safety::{canonical_name, safety_class, role_for_name};
 pub use types::{
