@@ -394,6 +394,41 @@ impl FlashExecutor {
         FlashResult { total, succeeded, failed, outcomes }
     }
 
+    /// Flash a raw image to a partition. Public entry point for `flash-raw`.
+    pub async fn flash_raw_image(
+        &mut self,
+        partition: &str,
+        image_path: &Path,
+    ) -> Result<()> {
+        let max_download = self.fb.get_var("max-download-size").await.ok()
+            .and_then(|s| fastboot_protocol::protocol::parse_u32(&s).ok())
+            .unwrap_or(256 * 1024 * 1024);
+
+        self.flash_image_to_partition(partition, image_path, max_download).await
+    }
+
+    /// Shared helper: erase partition, then download+flash (single or chunked).
+    async fn flash_image_to_partition(
+        &mut self,
+        partition: &str,
+        path: &Path,
+        max_download: u32,
+    ) -> Result<()> {
+        let file_len = tokio::fs::metadata(path).await?.len();
+        let size = u32::try_from(file_len).unwrap_or(u32::MAX);
+
+        debug!(%partition, file_size = file_len, max_download, "flashing image to partition");
+
+        self.fb.erase(partition).await?;
+
+        if size > max_download {
+            info!(%partition, size = file_len, %max_download, "image exceeds max download, splitting into chunks");
+            self.flash_large_partition(partition, path, file_len, max_download).await
+        } else {
+            self.flash_raw_partition(partition, path, size).await
+        }
+    }
+
     async fn flash_partition(
         &mut self,
         action: &crate::scatter_parser::types::FlashAction,
@@ -413,31 +448,20 @@ impl FlashExecutor {
             return Err(FlashError::ImageNotFound(path.to_path_buf()));
         }
 
-        let file_len = tokio::fs::metadata(path).await?.len();
-        let size = u32::try_from(file_len).unwrap_or(u32::MAX);
-
         debug!(
             %partition,
             %image_path,
-            file_size = file_len,
-            max_download = max_download,
+            max_download,
             "checking image"
         );
 
         if dry_run {
+            let file_len = tokio::fs::metadata(path).await?.len();
             info!(%partition, %image_path, size = file_len, "dry run: would flash this image");
             return Ok(());
         }
 
-        self.fb.erase(partition).await?;
-
-        if size > max_download {
-            // Large file: split into chunks
-            info!(%partition, size = file_len, %max_download, "image exceeds max download, splitting into chunks");
-            self.flash_large_partition(partition, path, file_len, max_download).await
-        } else {
-            self.flash_raw_partition(partition, path, size).await
-        }
+        self.flash_image_to_partition(partition, path, max_download).await
     }
 
     /// Flash a partition that fits in a single download.

@@ -10,6 +10,8 @@ pub mod flash;
 pub mod device;
 /// Format-data CLI handler.
 pub mod format_data;
+/// Flash-raw CLI handler.
+pub mod flash_raw;
 
 /// Initialize stderr-only tracing for CLI commands.
 pub fn init_stderr_logging(level: &str) {

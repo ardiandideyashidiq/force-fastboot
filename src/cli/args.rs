@@ -35,7 +35,7 @@ pub enum Commands {
     /// Flash a flash plan to a device over fastboot
     Flash {
         /// Path to the scatter file
-        scatter: std::path::PathBuf,
+        scatter: Option<std::path::PathBuf>,
 
         /// Dry run: verify device and plan without writing
         #[arg(long)]
@@ -72,6 +72,23 @@ pub enum Commands {
         /// Include preloader in dirty-flash mode
         #[arg(long)]
         include_preloader: bool,
+    },
+    /// Flash a raw image to a partition (with A/B slot support)
+    #[command(name = "flash-raw")]
+    FlashRaw {
+        /// Partition name (bare, without slot suffix, e.g. boot)
+        partition: String,
+        /// Path to the image file
+        image: std::path::PathBuf,
+        /// Target slot (a or b); auto-detect from device if not set
+        #[arg(long)]
+        slot: Option<String>,
+        /// Flash to both a and b slots (mutually exclusive with --slot)
+        #[arg(long)]
+        both: bool,
+        /// Enable verbose logging (trace level)
+        #[arg(short, long)]
+        verbose: bool,
     },
     /// Fastboot device operations
     Device {

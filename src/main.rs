@@ -53,7 +53,7 @@ async fn main() -> Result<()> {
                 }
             }
         }
-        Some(Commands::Flash { scatter, dry_run, verbose, mode, storage, part, group, firmware_dir, check_images, include_preloader }) => {
+        Some(Commands::Flash { scatter: Some(scatter), dry_run, verbose, mode, storage, part, group, firmware_dir, check_images, include_preloader }) => {
             pawflash::cli::flash::run(
                 &scatter,
                 dry_run,
@@ -67,8 +67,19 @@ async fn main() -> Result<()> {
                 include_preloader,
             ).await?;
         }
+        Some(Commands::Flash { scatter: None, .. }) => {
+            use clap::CommandFactory;
+            let mut cmd = Cli::command();
+            if let Some(flash_cmd) = cmd.find_subcommand_mut("flash") {
+                flash_cmd.print_help()?;
+                println!();
+            }
+        }
         Some(Commands::FormatData { verbose, fs_options }) => {
             pawflash::cli::format_data::run(verbose, fs_options).await?;
+        }
+        Some(Commands::FlashRaw { partition, image, slot, both, verbose }) => {
+            pawflash::cli::flash_raw::run(&partition, &image, slot, both, verbose).await?;
         }
         Some(Commands::Device { action }) => {
             pawflash::cli::device::run(action).await?;
