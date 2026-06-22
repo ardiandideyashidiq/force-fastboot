@@ -9,6 +9,7 @@ mod image;
 
 use std::collections::{BTreeMap, BTreeSet};
 use serde_json::{json, Value};
+use tracing::debug;
 use crate::scatter_parser::types::{
     FlashPlan, FlashPlanOptions, ScatterFile,
 };
@@ -23,6 +24,13 @@ use crate::scatter_parser::types::{
 #[expect(clippy::needless_pass_by_value)]
 #[allow(clippy::too_many_lines)]
 pub fn build_flash_plan(scatter: &ScatterFile, options: FlashPlanOptions) -> FlashPlan {
+    debug!(
+        mode = %mode::mode_str(options.mode),
+        storage = %mode::storage_str(options.storage),
+        parts = options.parts.join(","),
+        groups = options.groups.join(","),
+        "building flash plan",
+    );
     let mut warnings = Vec::new();
     let mut errors = Vec::new();
     group::record_unknown_groups(&options.groups, &mut errors);
@@ -131,6 +139,14 @@ pub fn build_flash_plan(scatter: &ScatterFile, options: FlashPlanOptions) -> Fla
     if options.check_images && oversized_images > 0 {
         errors.push(format!("oversized images: {oversized_images}"));
     }
+
+    debug!(
+        actions = actions.len(),
+        skipped = skipped.len(),
+        warnings = warnings.len(),
+        errors = errors.len(),
+        "flash plan summary",
+    );
 
     let summary = action::finalize_plan_summary(&actions, action::PlanSummaryCounts {
         skipped_count: skipped.len(),

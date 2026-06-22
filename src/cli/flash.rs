@@ -2,10 +2,9 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
 use clap::CommandFactory;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::cli::args::{Cli, FlashAction};
-use crate::cli::init_stderr_logging;
 use crate::flash::FlashExecutor;
 use crate::scatter_parser as sp;
 
@@ -30,11 +29,7 @@ pub async fn run(
     image: Option<PathBuf>,
     slot: Option<String>,
     both: bool,
-    verbose: bool,
 ) -> Result<()> {
-    let level = if verbose { "trace" } else { "info" };
-    init_stderr_logging(level);
-
     match action {
         Some(FlashAction::Scatter {
             ref path,
@@ -112,6 +107,11 @@ async fn run_scatter(
     image_search: bool,
     allow_incomplete_slots: bool,
 ) -> Result<()> {
+    debug!(
+        ?scatter_path, show, dry_run, ?mode, parts = %parts.join(","),
+        "run_scatter entered",
+    );
+
     // ── Mode 1: Show scatter metadata (was: scatter parse) ──────────
     if show {
         return show_scatter_metadata(scatter_path, full_json);
@@ -121,6 +121,11 @@ async fn run_scatter(
     info!(?scatter_path, "parsing scatter file");
     let parsed = sp::parse_scatter(scatter_path)
         .with_context(|| format!("failed to parse {}", scatter_path.display()))?;
+    debug!(
+        "scatter parsed: {} partitions across {} layouts",
+        parsed.layouts.values().map(Vec::len).sum::<usize>(),
+        parsed.layouts.len(),
+    );
 
     let options = sp::FlashPlanOptions {
         mode,
@@ -137,6 +142,7 @@ async fn run_scatter(
 
     info!("building flash plan");
     let plan = sp::build_flash_plan(&parsed, options);
+    debug!(actions = plan.actions.len(), skipped = plan.skipped.len(), "flash plan built");
 
     if !plan.errors.is_empty() {
         error!("flash plan has errors:");
@@ -166,6 +172,7 @@ async fn run_scatter(
 
     info!("connecting to fastboot device");
     let mut executor = FlashExecutor::connect().await?;
+    debug!("connected, executing flash plan");
 
     let result = executor.execute_plan(&plan, false).await;
 
@@ -316,6 +323,7 @@ async fn run_raw_image(
     }
     let image = image.canonicalize().context("failed to resolve image path")?;
 
+    debug!(%partition, image = %image.display(), ?slot, both, "raw image flash requested");
     info!(
         partition,
         image = %image.display(),

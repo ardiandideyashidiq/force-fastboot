@@ -227,6 +227,7 @@ impl FlashExecutor {
     /// This disables dm-verity and AVB verification (flags=3).
     pub async fn flash_empty_vbmeta(&mut self) -> Result<()> {
         let data = crate::flash::vbmeta::EMPTY_VBMETA;
+        debug!("flashing empty vbmeta to both slots");
         for slot in &["a", "b"] {
             let partition = format!("vbmeta_{slot}");
             info!(%partition, "flashing empty vbmeta");
@@ -244,6 +245,7 @@ impl FlashExecutor {
         partition: &str,
         image_path: &Path,
     ) -> Result<()> {
+        debug!(%partition, image_path = %image_path.display(), "flash_raw_image entry");
         let max_download = self.fb.get_var("max-download-size").await.ok()
             .and_then(|s| fastboot_protocol::protocol::parse_u32(&s).ok())
             .unwrap_or(256 * 1024 * 1024);
@@ -315,6 +317,7 @@ impl FlashExecutor {
         path: &Path,
         size: u32,
     ) -> Result<()> {
+        debug!(%partition, file_size = size, "flashing raw partition");
         let mut file = tokio::fs::File::open(path).await?;
         let mut sender = self.fb.download(size).await?;
 
@@ -329,6 +332,7 @@ impl FlashExecutor {
 
         sender.finish().await?;
         self.fb.flash(partition).await?;
+        debug!(%partition, "raw partition flash complete");
         Ok(())
     }
 
@@ -340,6 +344,7 @@ impl FlashExecutor {
         file_len: u64,
         max_download: u32,
     ) -> Result<()> {
+        debug!(%partition, file_len, max_download, "starting chunked flash");
         let chunk_size = u64::from(max_download);
         let mut file = tokio::fs::File::open(path).await?;
         let mut remaining = file_len;
@@ -372,6 +377,7 @@ impl FlashExecutor {
             chunk_index += 1;
         }
 
+        debug!(%partition, chunks = chunk_index, "chunked flash complete");
         Ok(())
     }
 }

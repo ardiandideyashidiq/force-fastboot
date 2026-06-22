@@ -13,6 +13,7 @@ use std::path::Path;
 use encoding_rs::{UTF_16BE, UTF_16LE, UTF_8};
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
+use tracing::debug;
 
 use crate::scatter_parser::error::{Error, Result};
 use crate::scatter_parser::parse::helpers::{
@@ -39,12 +40,17 @@ pub fn parse_scatter(path: impl AsRef<Path>) -> Result<ScatterFile> {
     if !path.is_file() {
         return Err(Error::NotFile(path.to_path_buf()));
     }
+    debug!(?path, "starting scatter parse");
+
     let text = decode_text(path)?;
     let text_hash = sha256_text(&text);
     let mut warnings: Vec<String> = Vec::new();
     let mut errors: Vec<String> = Vec::new();
 
-    let parsed = if looks_like_xml(&text) {
+    let is_xml = looks_like_xml(&text);
+    debug!(?path, is_xml, "scatter format detected");
+
+    let parsed = if is_xml {
         xml::parse_xml_scatter(&text).map_err(|e| Error::Xml(e.to_string()))?
     } else {
         yaml::parse_yaml_scatter(&text)

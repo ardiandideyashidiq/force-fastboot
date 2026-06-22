@@ -6,6 +6,9 @@ use crate::scatter_parser as sp;
 #[command(name = "pawflash", about = "MTK device flashing toolkit", version)]
 #[command(args_conflicts_with_subcommands = true)]
 pub struct Cli {
+    /// Enable verbose (debug-level) logging
+    #[arg(short, long, global = true)]
+    pub verbose: bool,
     #[command(subcommand)]
     pub command: Option<Commands>,
 }
@@ -14,10 +17,7 @@ pub struct Cli {
 pub enum Commands {
     /// Force a `MediaTek` device into fastboot mode via preloader serial handshake
     #[command(name = "force-fastboot")]
-    ForceFastboot {
-        #[arg(short, long)]
-        verbose: bool,
-    },
+    ForceFastboot,
     /// Flash operations: scatter-based flash plan, inspect, or raw image flash
     Flash {
         #[command(subcommand)]
@@ -32,29 +32,19 @@ pub enum Commands {
         /// Flash to both a and b slots (raw mode only, mutually exclusive with --slot)
         #[arg(long)]
         both: bool,
-        /// Enable verbose logging
-        #[arg(short, long)]
-        verbose: bool,
     },
     /// Flash empty vbmeta to both slots, disabling dm-verity and AVB verification
     #[command(name = "disable-vbmeta")]
-    DisableVbmeta {
-        #[arg(short, long)]
-        verbose: bool,
-    },
+    DisableVbmeta,
     /// Erase and format userdata, cache, metadata with empty filesystems
     #[command(name = "format-data")]
     FormatData {
-        #[arg(short, long)]
-        verbose: bool,
         /// Comma-separated filesystem options: casefold, projid, compress
         #[arg(long, value_delimiter = ',')]
         fs_options: Vec<String>,
     },
     /// Fastboot device operations
     Device {
-        #[arg(short, long)]
-        verbose: bool,
         #[command(subcommand)]
         action: DeviceAction,
     },
@@ -108,7 +98,7 @@ pub enum FlashAction {
     },
 }
 
-#[derive(Subcommand)]
+#[derive(Debug, Subcommand)]
 pub enum DeviceAction {
     /// Show device info (all fastboot variables)
     Info,

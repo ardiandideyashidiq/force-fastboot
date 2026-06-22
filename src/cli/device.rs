@@ -1,8 +1,7 @@
 use anyhow::Result;
-use tracing::info;
+use tracing::{debug, info};
 
 use crate::cli::args::DeviceAction;
-use crate::cli::init_stderr_logging;
 use crate::flash::executor::BootTarget;
 use crate::flash::FlashExecutor;
 
@@ -11,9 +10,8 @@ use crate::flash::FlashExecutor;
 /// # Errors
 ///
 /// Returns an error if the device is not reachable or the operation fails.
-pub async fn run(verbose: bool, action: DeviceAction) -> Result<()> {
-    let level = if verbose { "trace" } else { "info" };
-    init_stderr_logging(level);
+pub async fn run(action: DeviceAction) -> Result<()> {
+    debug!("device command: {action:?}");
 
     info!("connecting to fastboot device");
     let mut executor = FlashExecutor::connect().await?;

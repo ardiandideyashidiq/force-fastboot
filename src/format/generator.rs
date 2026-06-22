@@ -148,6 +148,11 @@ async fn generate_ext4(
     const BLOCK_SIZE: u64 = 4096;
     let blocks = part_size / BLOCK_SIZE;
 
+    debug!(
+        part_size, blocks, erase_blk_size, logical_blk_size, fs_options,
+        "generating ext4 filesystem",
+    );
+
     let mke2fs = tools_dir.join("mke2fs");
     let conf = tools_dir.join("mke2fs.conf");
 
@@ -205,6 +210,8 @@ async fn generate_f2fs(
     fs_options: u32,
 ) -> Result<()> {
     let mkf2fs = tools_dir.join("make_f2fs");
+
+    debug!(part_size, fs_options, "generating f2fs filesystem");
 
     let mut cmd = tokio::process::Command::new(&mkf2fs);
     cmd.arg("-S").arg(part_size.to_string());

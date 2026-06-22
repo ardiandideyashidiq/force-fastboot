@@ -3,7 +3,6 @@ use tokio::io::AsyncWriteExt;
 use tokio::time::{sleep, Duration, Instant};
 use tracing::{debug, info, trace, warn};
 
-use crate::cli::init_stderr_logging;
 use crate::force_fastboot::{fastboot, serial};
 
 /// Force a `MediaTek` device into fastboot mode via preloader handshake.
@@ -12,10 +11,7 @@ use crate::force_fastboot::{fastboot, serial};
 ///
 /// Returns an error if no preloader serial port is found, the serial
 /// port cannot be opened, or the handshake otherwise fails.
-pub async fn run(verbose: bool) -> Result<()> {
-    let default_level = if verbose { "trace" } else { "info" };
-    init_stderr_logging(default_level);
-
+pub async fn run() -> Result<()> {
     let start_all = Instant::now();
     info!("starting");
 
@@ -82,6 +78,7 @@ pub async fn run(verbose: bool) -> Result<()> {
 
     let elapsed = start.elapsed().as_secs_f32();
     info!(sends = count, elapsed_secs = elapsed, "handshake succeeded");
+    debug!(sends = count, elapsed_secs = elapsed, "force-fastboot handshake loop exited");
 
     fastboot::list_fastboot_devices().await;
     info!(total_secs = start_all.elapsed().as_secs_f32(), sends = count, "force-fastboot complete");

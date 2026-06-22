@@ -1,7 +1,6 @@
 use anyhow::Result;
-use tracing::info;
+use tracing::{debug, info};
 
-use crate::cli::init_stderr_logging;
 use crate::flash::FlashExecutor;
 use crate::format::generator;
 
@@ -10,15 +9,10 @@ use crate::format::generator;
 /// # Errors
 ///
 /// Returns an error if the device is not reachable or formatting fails.
-pub async fn run(verbose: bool, fs_options: Vec<String>) -> Result<()> {
-    if verbose {
-        init_stderr_logging("trace");
-    } else {
-        init_stderr_logging("info");
-    }
-
+pub async fn run(fs_options: Vec<String>) -> Result<()> {
     let fs_options = generator::parse_fs_options(&fs_options);
 
+    debug!(?fs_options, "format-data started");
     info!(?fs_options, "connecting to fastboot device");
     let mut executor = FlashExecutor::connect().await?;
 

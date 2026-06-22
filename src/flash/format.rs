@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use fastboot_protocol::protocol;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::flash::error::FlashError;
 use crate::flash::executor::FlashExecutor;
@@ -74,6 +74,7 @@ impl FlashExecutor {
         max_download: u32,
         tools_dir: &Path,
     ) -> FormatOutcome {
+        debug!(%partition, "wipe_partition: querying partition type");
         // 1. query partition-type — skip if nonexistent
         let partition_type = match self.fb.get_var(&format!("partition-type:{partition}")).await {
             Ok(t) if !t.is_empty() => t,
@@ -93,6 +94,7 @@ impl FlashExecutor {
 
         // 2. erase
         info!(%partition, "erasing");
+        debug!(%partition, "sending erase command");
         if let Err(e) = self.fb.erase(partition).await {
             return FormatOutcome {
                 partition: partition.into(),
@@ -101,6 +103,7 @@ impl FlashExecutor {
         }
 
         // 3. determine filesystem type
+        debug!(%partition, %partition_type, "determining filesystem type");
         let Some(fs_type) = FsType::from_partition_type(&partition_type) else {
             return FormatOutcome {
                 partition: partition.into(),
@@ -109,6 +112,7 @@ impl FlashExecutor {
         };
 
         // 4. query partition size
+        debug!(%partition, "querying partition size");
         let part_size = match self.fb.get_var(&format!("partition-size:{partition}")).await {
             Ok(s) => parse_getvar_hex_u64(&s).unwrap_or(0),
             Err(e) => {
@@ -129,6 +133,7 @@ impl FlashExecutor {
         }
 
         // 5. optional block sizes for stride optimisation
+        debug!(%partition, "querying erase/logical block sizes");
         let erase_blk = self
             .fb
             .get_var("erase-block-size")
@@ -151,6 +156,7 @@ impl FlashExecutor {
             .unwrap_or(0);
 
         // 6. generate empty filesystem image
+        debug!(%partition, %partition_type, part_size, "generating empty filesystem");
         let output_path = tools_dir.join("format.img");
         if let Err(e) = generator::generate_empty_fs(
             tools_dir,
