@@ -80,27 +80,43 @@ impl FlashExecutor {
 
         let mut fb = NusbFastBoot::from_info(&info).await?;
 
-        // Some bootloaders (MediaTek) hang on getvar:all, so query each
-        // needed variable individually with a timeout.
-        let mut device_vars: HashMap<String, String> = HashMap::new();
-        for var in ["version", "product", "serialno", "current-slot", "max-download-size"] {
-            match tokio::time::timeout(
-                std::time::Duration::from_secs(2),
-                fb.get_var(var),
-            )
-                .await
-            {
-                Ok(Ok(v)) => {
-                    device_vars.insert(var.to_string(), v);
-                }
-                Ok(Err(e)) => {
-                    debug!(%var, error = %e, "getvar failed");
-                }
-                Err(_) => {
-                    debug!(%var, "getvar timed out after 2s");
+        // Some bootloaders hang on getvar:all (slow response), so use a
+        // generous timeout and fall back to individual queries if it fails.
+        let device_vars = match tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            fb.get_all_vars(),
+        )
+            .await
+        {
+            Ok(Ok(vars)) => vars,
+            Ok(Err(e)) => {
+                debug!(error = %e, "getvar:all failed, falling back to individual queries");
+                HashMap::new()
+            }
+            Err(_) => {
+                debug!("getvar:all timed out, falling back to individual queries");
+                HashMap::new()
+            }
+        };
+
+        let device_vars = if device_vars.is_empty() {
+            let mut vars: HashMap<String, String> = HashMap::new();
+            for var in ["version", "product", "serialno", "current-slot", "max-download-size"] {
+                match tokio::time::timeout(
+                    std::time::Duration::from_secs(2),
+                    fb.get_var(var),
+                )
+                    .await
+                {
+                    Ok(Ok(v)) => { vars.insert(var.to_string(), v); }
+                    Ok(Err(e)) => { debug!(%var, error = %e, "getvar failed"); }
+                    Err(_) => { debug!(%var, "getvar timed out"); }
                 }
             }
-        }
+            vars
+        } else {
+            device_vars
+        };
 
         info!(
             product = device_vars.get("product").map_or("?", |s| s.as_str()),
@@ -602,17 +618,9 @@ fn diagnose_fastboot_sysfs() {
         let class = read_attr(&base.join("bInterfaceClass"));
         let subclass = read_attr(&base.join("bInterfaceSubClass"));
         let protocol = read_attr(&base.join("bInterfaceProtocol"));
-        let is_me = class == "ff" && subclass == "42" && protocol == "03";
-        let marker = if is_me { " <<< FASTBOOT" } else { "" };
-        warn!(
-            iface = %name,
-            class,
-            subclass,
-            protocol,
-            "sysfs interface{marker}",
-        );
+        if class == "ff" && subclass == "42" && protocol == "03" {
+            warn!(iface = %name, %class, %subclass, %protocol, "found fastboot interface in sysfs");
 
-        if is_me {
             let parent_name = name.split(':').next().unwrap_or("");
             let parent = root.join(parent_name);
             warn!(parent = %parent_name, "fastboot interface -> parent device");
