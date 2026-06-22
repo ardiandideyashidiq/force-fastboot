@@ -10,6 +10,8 @@ pub mod device;
 pub mod format_data;
 /// Disable-vbmeta CLI handler.
 pub mod disable_vbmeta;
+/// GSI flash CLI handler.
+pub mod gsi;
 /// Interactive flash prompt flow.
 pub mod interactive;
 

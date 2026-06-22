@@ -14,4 +14,5 @@ pub mod cli;
 pub mod flash;
 pub mod force_fastboot;
 pub mod format;
+pub mod gsi;
 pub mod scatter_parser;

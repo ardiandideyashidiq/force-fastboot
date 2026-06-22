@@ -102,6 +102,13 @@ pub enum FlashAction {
         #[arg(long)]
         clean: bool,
     },
+    /// Flash a Generic System Image (GSI) to the device.
+    /// Handles vbmeta disable, userdata wipe, and mode transitions
+    /// (bootloader ↔ fastbootd) automatically.
+    Gsi {
+        /// Path to the GSI system image (e.g. system.img)
+        image: std::path::PathBuf,
+    },
 }
 
 #[derive(Debug, Subcommand)]

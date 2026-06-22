@@ -309,6 +309,27 @@ impl NusbFastBoot {
         })
     }
 
+    /// Check whether a partition is a logical (dynamic) partition.
+    pub async fn is_logical(&mut self, partition: &str) -> Result<bool, NusbFastBootError> {
+        let resp = self.get_var(&format!("is-logical:{partition}")).await?;
+        Ok(resp == "yes")
+    }
+
+    /// Resize a logical partition to the given size.
+    pub async fn resize_logical_partition(
+        &mut self,
+        partition: &str,
+        size: u64,
+    ) -> Result<(), NusbFastBootError> {
+        let cmd = FastBootCommand::<&str>::ResizeLogicalPartition {
+            partition,
+            size,
+        };
+        self.execute(cmd).await.map(|v| {
+            trace!("resize-logical-partition {partition}: {v}");
+        })
+    }
+
     /// Retrieve all variables
     pub async fn get_all_vars(&mut self) -> Result<HashMap<String, String>, NusbFastBootError> {
         let cmd = FastBootCommand::GetVar("all");

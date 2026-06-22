@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::Path;
+use std::time::Duration;
 
 use fastboot_protocol::nusb::NusbFastBoot;
 use indicatif::ProgressBar;
@@ -231,6 +232,64 @@ impl FlashExecutor {
         info!(succeeded, failed, total, "flash plan execution complete");
 
         FlashResult { total, succeeded, failed, outcomes }
+    }
+
+    /// Check whether a partition is a logical (dynamic) partition.
+    pub async fn is_logical(&mut self, partition: &str) -> Result<bool> {
+        self.fb.is_logical(partition).await.map_err(FlashError::from)
+    }
+
+    /// Resize a logical partition to the given size.
+    pub async fn resize_logical_partition(&mut self, partition: &str, size: u64) -> Result<()> {
+        self.fb
+            .resize_logical_partition(partition, size)
+            .await
+            .map_err(FlashError::from)
+    }
+
+    /// Wait for a fastboot device to appear, trying every 250ms up to `timeout`.
+    /// Returns a new `FlashExecutor` connected to the device.
+    ///
+    /// After a reboot the device must re-enumerate on the USB bus and settle
+    /// before it can be claimed. An initial grace period is applied before the
+    /// first attempt, and a progress message is printed every 5 seconds so the
+    /// user knows we are still waiting.
+    pub async fn wait_for_device(timeout: Duration) -> Result<Self> {
+        // After reboot, USB re-enumeration needs a moment.
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        let start = std::time::Instant::now();
+        let mut last_log = start;
+        loop {
+            if start.elapsed() > timeout {
+                return Err(FlashError::NoDevice);
+            }
+            match Self::connect().await {
+                Ok(executor) => return Ok(executor),
+                Err(e) => {
+                    if last_log.elapsed() > Duration::from_secs(5) {
+                        info!(
+                            "waiting for fastboot device after reboot (error: {e}) ..."
+                        );
+                        last_log = std::time::Instant::now();
+                    }
+                    tokio::time::sleep(Duration::from_millis(250)).await;
+                }
+            }
+        }
+    }
+
+    /// Consume self, reboot to the given target, then wait for the device to
+    /// re-enumerate and return a fresh `FlashExecutor`.
+    ///
+    /// The response read is intentionally ignored — the device disconnects
+    /// immediately after receiving the reboot command, causing USB transfer
+    /// errors that are harmless.
+    pub async fn reboot_and_wait(mut self, target: BootTarget) -> Result<Self> {
+        debug!(?target, "rebooting device and waiting for reconnect");
+        let _ = self.fb.reboot_to(target.as_str()).await;
+        drop(self);
+        Self::wait_for_device(Duration::from_secs(120)).await
     }
 
     /// Flash the vendored empty vbmeta image to both slots.

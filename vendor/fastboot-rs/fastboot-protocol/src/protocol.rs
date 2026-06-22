@@ -63,6 +63,8 @@ pub enum FastBootCommand<S> {
     Flashing(S),
     /// Set active boot slot (a or b)
     SetActive(S),
+    /// Resize a logical partition (inside super) to the given size
+    ResizeLogicalPartition { partition: S, size: u64 },
 }
 
 impl<S: Display> Display for FastBootCommand<S> {
@@ -81,6 +83,9 @@ impl<S: Display> Display for FastBootCommand<S> {
             FastBootCommand::Powerdown => write!(f, "powerdown"),
             FastBootCommand::Flashing(cmd) => write!(f, "flashing {cmd}"),
             FastBootCommand::SetActive(slot) => write!(f, "set_active:{slot}"),
+            FastBootCommand::ResizeLogicalPartition { partition, size } => {
+                write!(f, "resize-logical-partition:{partition}:{size}")
+            }
         }
     }
 }

@@ -108,6 +108,9 @@ pub async fn run(
             };
             run_scatter(&cfg).await?;
         }
+        Some(FlashAction::Gsi { ref image }) => {
+            crate::cli::gsi::run(image).await?;
+        }
         None => {
             let Some(partition) = partition else {
                 print_flash_help()?;
