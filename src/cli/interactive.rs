@@ -4,7 +4,6 @@ use anyhow::{Context, Result};
 use tracing::info;
 
 use crate::flash::executor::{BootTarget, FlashExecutor};
-use crate::flash::results::FormatStatus;
 use crate::output;
 use crate::output::prompts;
 use crate::scatter_parser as sp;
@@ -42,22 +41,6 @@ fn show_plan(_parsed: &sp::ScatterFile, plan: &sp::FlashPlan) -> Result<bool> {
     Ok(true)
 }
 
-async fn do_format(executor: &mut FlashExecutor) -> Result<()> {
-    let format_result = output::spinner::run_with_spinner(
-        "Formatting partitions...",
-        async { executor.format_data(0).await },
-    )
-    .await;
-    let wiped: usize = format_result
-        .outcomes
-        .iter()
-        .filter(|o| matches!(o.status, FormatStatus::Wiped))
-        .count();
-    println!("  {}", output::tables::format_result("Format complete", wiped));
-    println!();
-    Ok(())
-}
-
 async fn do_reboot(executor: &mut FlashExecutor, target: &str) -> Result<()> {
     match target {
         "system" => {
@@ -90,7 +73,7 @@ async fn do_reboot(executor: &mut FlashExecutor, target: &str) -> Result<()> {
 }
 
 /// Run the interactive flash flow: show plan, confirm, execute with progress,
-/// then optionally format data and reboot.
+/// then reboot.
 #[allow(clippy::missing_panics_doc, clippy::missing_errors_doc)]
 pub async fn run(scatter_path: &Path, exclude: &[String], clean: bool) -> Result<()> {
     let parsed = sp::parse_scatter(scatter_path)
@@ -137,10 +120,6 @@ pub async fn run(scatter_path: &Path, exclude: &[String], clean: bool) -> Result
 
     if result.failed > 0 {
         return Ok(());
-    }
-
-    if prompts::confirm_no("Format userdata, cache, metadata?")? {
-        do_format(&mut executor).await?;
     }
 
     let reboot_target = prompts::select(
