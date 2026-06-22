@@ -3,10 +3,12 @@ use tracing::info;
 
 use crate::cli::args::DeviceAction;
 use crate::cli::init_stderr_logging;
+use crate::flash::executor::BootTarget;
 use crate::flash::FlashExecutor;
 
-pub async fn run(action: DeviceAction) -> Result<()> {
-    init_stderr_logging("info");
+pub async fn run(verbose: bool, action: DeviceAction) -> Result<()> {
+    let level = if verbose { "trace" } else { "info" };
+    init_stderr_logging(level);
 
     info!("connecting to fastboot device");
     let mut executor = FlashExecutor::connect().await?;
@@ -21,13 +23,14 @@ pub async fn run(action: DeviceAction) -> Result<()> {
         }
         DeviceAction::Reboot { target } => {
             info!(%target, "rebooting device");
-            match target.as_str() {
-                "system" => executor.reboot().await?,
-                "bootloader" => executor.reboot_to("bootloader").await?,
-                "fastbootd" | "fastboot" => executor.reboot_to("fastboot").await?,
-                "recovery" => executor.reboot_to("recovery").await?,
+            let boot_target = match target.as_str() {
+                "system" => BootTarget::System,
+                "bootloader" => BootTarget::Bootloader,
+                "fastbootd" | "fastboot" => BootTarget::Fastboot,
+                "recovery" => BootTarget::Recovery,
                 _ => anyhow::bail!("unknown reboot target '{target}': expected system, bootloader, fastbootd, or recovery"),
-            }
+            };
+            executor.reboot_to(boot_target).await?;
             info!(%target, "reboot command sent");
         }
         DeviceAction::Lock => {

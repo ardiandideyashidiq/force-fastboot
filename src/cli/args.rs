@@ -1,4 +1,3 @@
-use anyhow::Result;
 use clap::{Parser, Subcommand};
 use crate::scatter_parser as sp;
 
@@ -46,12 +45,12 @@ pub enum Commands {
         verbose: bool,
 
         /// Flash planning mode
-        #[arg(long, default_value = "selective")]
-        mode: String,
+        #[arg(long, default_value = "selective", value_parser = parse_mode)]
+        mode: sp::Mode,
 
         /// Storage layout selection
-        #[arg(long, default_value = "auto")]
-        storage: String,
+        #[arg(long, default_value = "auto", value_parser = parse_storage)]
+        storage: sp::StorageSelect,
 
         /// Explicit partition names to include (repeatable)
         #[arg(long)]
@@ -100,6 +99,8 @@ pub enum Commands {
     },
     /// Fastboot device operations
     Device {
+        #[arg(short, long)]
+        verbose: bool,
         #[command(subcommand)]
         action: DeviceAction,
     },
@@ -120,10 +121,10 @@ pub enum ScatterAction {
         json: bool,
         #[arg(short, long)]
         verbose: bool,
-        #[arg(long, default_value = "dry-run")]
-        mode: String,
-        #[arg(long, default_value = "auto")]
-        storage: String,
+        #[arg(long, default_value = "dry-run", value_parser = parse_mode)]
+        mode: sp::Mode,
+        #[arg(long, default_value = "auto", value_parser = parse_storage)]
+        storage: sp::StorageSelect,
         #[arg(long)]
         part: Vec<String>,
         #[arg(long)]
@@ -171,21 +172,21 @@ pub enum DeviceAction {
     },
 }
 
-pub fn parse_mode(s: &str) -> Result<sp::Mode> {
+fn parse_mode(s: &str) -> std::result::Result<sp::Mode, String> {
     match s.to_lowercase().as_str() {
         "dry-run" | "dry_run" => Ok(sp::Mode::DryRun),
         "selective" => Ok(sp::Mode::Selective),
         "dirty-flash" | "dirty_flash" => Ok(sp::Mode::DirtyFlash),
-        _ => anyhow::bail!("invalid mode '{s}': expected dry-run, selective, or dirty-flash"),
+        _ => Err(format!("invalid mode '{s}': expected dry-run, selective, or dirty-flash")),
     }
 }
 
-pub fn parse_storage(s: &str) -> Result<sp::StorageSelect> {
+fn parse_storage(s: &str) -> std::result::Result<sp::StorageSelect, String> {
     match s.to_lowercase().as_str() {
         "auto" => Ok(sp::StorageSelect::Auto),
         "all" => Ok(sp::StorageSelect::All),
         "ufs" => Ok(sp::StorageSelect::Ufs),
         "emmc" => Ok(sp::StorageSelect::Emmc),
-        _ => anyhow::bail!("invalid storage '{s}': expected auto, all, ufs, or emmc"),
+        _ => Err(format!("invalid storage '{s}': expected auto, all, ufs, or emmc")),
     }
 }

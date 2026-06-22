@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::{CommandFactory, Parser};
-use pawflash::cli::args::{Cli, Commands, ScatterAction, parse_mode, parse_storage};
+use pawflash::cli::args::{Cli, Commands, ScatterAction};
 
 fn print_help(sub_name: &str) -> Result<()> {
     let mut cmd = Cli::command();
@@ -37,8 +37,8 @@ async fn main() -> Result<()> {
                         &scatter,
                         json,
                         verbose,
-                        parse_mode(&mode)?,
-                        parse_storage(&storage)?,
+                        mode,
+                        storage,
                         part,
                         group,
                         firmware_dir,
@@ -59,8 +59,8 @@ async fn main() -> Result<()> {
                 &scatter,
                 dry_run,
                 verbose,
-                parse_mode(&mode)?,
-                parse_storage(&storage)?,
+                mode,
+                storage,
                 part,
                 group,
                 firmware_dir,
@@ -83,8 +83,8 @@ async fn main() -> Result<()> {
         Some(Commands::DisableVbmeta { verbose }) => {
             pawflash::cli::disable_vbmeta::run(verbose).await?;
         }
-        Some(Commands::Device { action }) => {
-            pawflash::cli::device::run(action).await?;
+        Some(Commands::Device { verbose, action }) => {
+            pawflash::cli::device::run(verbose, action).await?;
         }
     }
 

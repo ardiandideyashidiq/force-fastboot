@@ -7,6 +7,7 @@ use crate::scatter_parser as sp;
 
 /// Parse and print scatter metadata.
 pub fn run_parse(path: &Path, full_json: bool) -> Result<()> {
+    init_stderr_logging("info");
     let scatter = sp::parse_scatter(path)
         .with_context(|| format!("failed to parse {}", path.display()))?;
 

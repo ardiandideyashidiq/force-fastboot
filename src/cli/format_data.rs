@@ -18,12 +18,7 @@ pub async fn run(verbose: bool, fs_options: Vec<String>) -> Result<()> {
     let mut executor = FlashExecutor::connect().await?;
 
     let result = executor.format_data(fs_options).await;
-
-    let wiped = result.outcomes.iter().filter(|o| matches!(o.status, crate::flash::executor::FormatStatus::Wiped)).count();
-    let failed = result.outcomes.iter().filter(|o| matches!(o.status, crate::flash::executor::FormatStatus::Failed(_))).count();
-    let erased_only = result.outcomes.iter().filter(|o| matches!(o.status, crate::flash::executor::FormatStatus::ErasedOnly(_))).count();
-    let skipped = result.outcomes.iter().filter(|o| matches!(o.status, crate::flash::executor::FormatStatus::Skipped(_))).count();
-    info!(wiped, erased_only, skipped, failed, "format-data done");
+    info!(outcomes = result.outcomes.len(), "format-data done");
 
     Ok(())
 }

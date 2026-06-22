@@ -3,59 +3,36 @@ use std::path::Path;
 
 use fastboot_protocol::nusb::NusbFastBoot;
 use tokio::io::AsyncReadExt;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, info, trace, warn};
 
 use crate::flash::error::FlashError;
 use crate::flash::error::Result;
-use crate::format::generator::{self, FsType};
+use crate::flash::results::{FlashOutcome, FlashResult};
 use crate::scatter_parser::types::FlashPlan;
 
-/// Outcome of a single flash action.
-#[derive(Debug)]
-pub struct FlashOutcome {
-    pub partition: String,
-    pub success: bool,
-    pub error: Option<FlashError>,
+/// Reboot target modes understood by fastboot.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum BootTarget {
+    System,
+    Bootloader,
+    Fastboot,
+    Recovery,
 }
 
-/// Overall result of executing a flash plan.
-#[derive(Debug)]
-pub struct FlashResult {
-    pub total: usize,
-    pub succeeded: usize,
-    pub failed: usize,
-    pub outcomes: Vec<FlashOutcome>,
-}
-
-/// Outcome of a format-data operation on a single partition.
-#[derive(Debug)]
-pub struct FormatOutcome {
-    pub partition: String,
-    pub status: FormatStatus,
-}
-
-/// Per-partition format status.
-#[derive(Debug)]
-pub enum FormatStatus {
-    /// Fully wiped and formatted with an empty filesystem.
-    Wiped,
-    /// Erased but not formatted (filesystem type not recognised).
-    ErasedOnly(String),
-    /// Skipped (partition does not exist or empty type).
-    Skipped(String),
-    /// Operation failed with the given error.
-    Failed(FlashError),
-}
-
-/// Result of a full format-data run.
-#[derive(Debug)]
-pub struct FormatDataResult {
-    pub outcomes: Vec<FormatOutcome>,
+impl BootTarget {
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::System => "system",
+            Self::Bootloader => "bootloader",
+            Self::Fastboot => "fastboot",
+            Self::Recovery => "recovery",
+        }
+    }
 }
 
 /// Fastboot flash executor.
 pub struct FlashExecutor {
-    fb: NusbFastBoot,
+    pub(crate) fb: NusbFastBoot,
     device_vars: HashMap<String, String>,
 }
 
@@ -68,7 +45,7 @@ impl FlashExecutor {
 
         let info = devices.next().ok_or_else(|| {
             #[cfg(target_os = "linux")]
-            diagnose_fastboot_sysfs();
+            crate::flash::diagnostics::diagnose_fastboot_sysfs();
             FlashError::NoDevice
         })?;
 
@@ -129,7 +106,7 @@ impl FlashExecutor {
     }
 
     /// Return the cached device variables.
-    pub fn device_vars(&self) -> &HashMap<String, String> {
+    pub const fn device_vars(&self) -> &HashMap<String, String> {
         &self.device_vars
     }
 
@@ -149,14 +126,14 @@ impl FlashExecutor {
             .map_err(FlashError::from)
     }
 
-    /// Reboot the device (to system by default).
+    /// Reboot the device (to system).
     pub async fn reboot(&mut self) -> Result<()> {
         self.fb.reboot().await.map_err(FlashError::from)
     }
 
     /// Reboot to a specific mode (bootloader, fastboot, recovery).
-    pub async fn reboot_to(&mut self, mode: &str) -> Result<()> {
-        self.fb.reboot_to(mode).await.map_err(FlashError::from)
+    pub async fn reboot_to(&mut self, target: BootTarget) -> Result<()> {
+        self.fb.reboot_to(target.as_str()).await.map_err(FlashError::from)
     }
 
     /// Lock the bootloader.
@@ -187,202 +164,6 @@ impl FlashExecutor {
         }
         debug!(%product, platform = ?plan.platform, "device identity verified");
         Ok(())
-    }
-
-    /// Erase userdata, cache, and metadata, then format with an empty filesystem.
-    /// Equivalent to `fastboot -w`.
-    pub async fn format_data(&mut self, fs_options: u32) -> FormatDataResult {
-        let partitions = ["userdata", "cache", "metadata"];
-        let mut outcomes = Vec::with_capacity(partitions.len());
-
-        info!(partitions = ?partitions, "starting format-data");
-
-        let (_tools, tools_dir) = match generator::extract_format_tools() {
-            Ok(pair) => pair,
-            Err(e) => {
-                let reason = format!("failed to extract format tools: {e}");
-                error!(%reason);
-                for partition in &partitions {
-                    outcomes.push(FormatOutcome {
-                        partition: partition.to_string(),
-                        status: FormatStatus::Failed(FlashError::GeneratorFailed {
-                            reason: reason.clone(),
-                        }),
-                    });
-                }
-                return FormatDataResult { outcomes };
-            }
-        };
-
-        let max_download = self
-            .fb
-            .get_var("max-download-size")
-            .await
-            .ok()
-            .and_then(|s| fastboot_protocol::protocol::parse_u32(&s).ok())
-            .unwrap_or(256 * 1024 * 1024);
-
-        for partition in &partitions {
-            let outcome = self
-                .wipe_partition(partition, fs_options, max_download, &tools_dir)
-                .await;
-            match &outcome.status {
-                FormatStatus::Wiped => info!(%partition, "wiped ✓"),
-                FormatStatus::ErasedOnly(fs) => {
-                    info!(%partition, fs_type = %fs, "erased only (unrecognized filesystem)")
-                }
-                FormatStatus::Skipped(reason) => info!(%partition, %reason, "skipped"),
-                FormatStatus::Failed(e) => warn!(%partition, error = %e, "failed"),
-            }
-            outcomes.push(outcome);
-        }
-
-        let wiped = outcomes.iter().filter(|o| matches!(o.status, FormatStatus::Wiped)).count();
-        let failed = outcomes.iter().filter(|o| matches!(o.status, FormatStatus::Failed(_))).count();
-        let erased_only = outcomes.iter().filter(|o| matches!(o.status, FormatStatus::ErasedOnly(_))).count();
-        let skipped = outcomes.iter().filter(|o| matches!(o.status, FormatStatus::Skipped(_))).count();
-        info!(wiped, erased_only, skipped, failed, "format-data complete");
-        FormatDataResult { outcomes }
-    }
-
-    /// Erase, generate empty filesystem, download, and flash a single partition.
-    async fn wipe_partition(
-        &mut self,
-        partition: &str,
-        fs_options: u32,
-        max_download: u32,
-        tools_dir: &Path,
-    ) -> FormatOutcome {
-        // 1. query partition-type — skip if nonexistent
-        let partition_type = match self.fb.get_var(&format!("partition-type:{partition}")).await {
-            Ok(t) if !t.is_empty() => t,
-            Ok(_) => {
-                return FormatOutcome {
-                    partition: partition.into(),
-                    status: FormatStatus::Skipped("empty partition type".into()),
-                };
-            }
-            Err(_) => {
-                return FormatOutcome {
-                    partition: partition.into(),
-                    status: FormatStatus::Skipped("partition not found".into()),
-                };
-            }
-        };
-
-        // 2. erase
-        info!(%partition, "erasing");
-        if let Err(e) = self.fb.erase(partition).await {
-            return FormatOutcome {
-                partition: partition.into(),
-                status: FormatStatus::Failed(FlashError::from(e)),
-            };
-        }
-
-        // 3. determine filesystem type
-        let fs_type = match FsType::from_partition_type(&partition_type) {
-            Some(t) => t,
-            None => {
-                return FormatOutcome {
-                    partition: partition.into(),
-                    status: FormatStatus::ErasedOnly(partition_type),
-                };
-            }
-        };
-
-        // 4. query partition size
-        let part_size = match self.fb.get_var(&format!("partition-size:{partition}")).await {
-            Ok(s) => parse_getvar_hex_u64(&s).unwrap_or(0),
-            Err(e) => {
-                return FormatOutcome {
-                    partition: partition.into(),
-                    status: FormatStatus::Failed(FlashError::from(e)),
-                };
-            }
-        };
-        if part_size == 0 {
-            return FormatOutcome {
-                partition: partition.into(),
-                status: FormatStatus::Failed(FlashError::ActionFailed {
-                    partition: partition.into(),
-                    reason: "partition size is 0".into(),
-                }),
-            };
-        }
-
-        // 5. optional block sizes for stride optimisation
-        let erase_blk = self
-            .fb
-            .get_var("erase-block-size")
-            .await
-            .ok()
-            .and_then(|s| {
-                parse_getvar_hex_u64(&s)
-                    .and_then(|v| u32::try_from(v).ok())
-            })
-            .unwrap_or(0);
-        let logical_blk = self
-            .fb
-            .get_var("logical-block-size")
-            .await
-            .ok()
-            .and_then(|s| {
-                parse_getvar_hex_u64(&s)
-                    .and_then(|v| u32::try_from(v).ok())
-            })
-            .unwrap_or(0);
-
-        // 6. generate empty filesystem image
-        let output_path = tools_dir.join("format.img");
-        if let Err(e) = generator::generate_empty_fs(
-            tools_dir,
-            &output_path,
-            fs_type,
-            part_size,
-            erase_blk,
-            logical_blk,
-            fs_options,
-        )
-        .await
-        {
-            return FormatOutcome {
-                partition: partition.into(),
-                status: FormatStatus::Failed(e),
-            };
-        }
-
-        // 7. download + flash
-        let file_len = match tokio::fs::metadata(&output_path).await {
-            Ok(m) => m.len(),
-            Err(e) => {
-                return FormatOutcome {
-                    partition: partition.into(),
-                    status: FormatStatus::Failed(FlashError::Io(e)),
-                };
-            }
-        };
-
-        let size = u32::try_from(file_len).unwrap_or(u32::MAX);
-
-        info!(%partition, size = file_len, fs_type = %partition_type, "flashing empty filesystem");
-
-        let result = if size > max_download {
-            self.flash_large_partition(partition, &output_path, file_len, max_download)
-                .await
-        } else {
-            self.flash_raw_partition(partition, &output_path, size).await
-        };
-
-        match result {
-            Ok(()) => FormatOutcome {
-                partition: partition.into(),
-                status: FormatStatus::Wiped,
-            },
-            Err(e) => FormatOutcome {
-                partition: partition.into(),
-                status: FormatStatus::Failed(e),
-            },
-        }
     }
 
     /// Execute a flash plan. Skips failed actions and continues.
@@ -525,7 +306,7 @@ impl FlashExecutor {
     }
 
     /// Flash a partition that fits in a single download.
-    async fn flash_raw_partition(
+    pub(crate) async fn flash_raw_partition(
         &mut self,
         partition: &str,
         path: &Path,
@@ -549,7 +330,7 @@ impl FlashExecutor {
     }
 
     /// Flash a partition by splitting into chunks that fit max_download_size.
-    async fn flash_large_partition(
+    pub(crate) async fn flash_large_partition(
         &mut self,
         partition: &str,
         path: &Path,
@@ -592,63 +373,4 @@ impl FlashExecutor {
     }
 }
 
-/// Parse a bootloader-reported numeric variable as hex.
-/// Some bootloaders omit the `0x` prefix; AOSP always treats the value as hex.
-fn parse_getvar_hex_u64(s: &str) -> Option<u64> {
-    let s = s.trim().strip_prefix("0x").unwrap_or(s.trim());
-    if s.is_empty() {
-        return None;
-    }
-    u64::from_str_radix(s, 16).ok()
-}
 
-/// When nusb enumeration returns no fastboot devices, scan `/sys/bus/usb/devices/`
-/// directly and log every interface with its class/subclass/protocol + parent device
-/// attributes. Helps diagnose why `nusb::probe_device()` silently dropped the device.
-#[cfg(target_os = "linux")]
-fn diagnose_fastboot_sysfs() {
-    use std::fs;
-    use std::path::Path;
-
-    let root = Path::new("/sys/bus/usb/devices");
-    let Ok(entries) = fs::read_dir(root) else {
-        warn!("cannot read /sys/bus/usb/devices");
-        return;
-    };
-
-    let read_attr = |p: &Path| -> String {
-        fs::read_to_string(p)
-            .map(|s| s.trim().to_ascii_lowercase())
-            .unwrap_or_default()
-    };
-
-    for entry in entries.flatten() {
-        let name = entry.file_name().to_string_lossy().into_owned();
-
-        if !name.contains(':') {
-            continue;
-        }
-
-        let base = entry.path();
-        let class = read_attr(&base.join("bInterfaceClass"));
-        let subclass = read_attr(&base.join("bInterfaceSubClass"));
-        let protocol = read_attr(&base.join("bInterfaceProtocol"));
-        if class == "ff" && subclass == "42" && protocol == "03" {
-            warn!(iface = %name, %class, %subclass, %protocol, "found fastboot interface in sysfs");
-
-            let parent_name = name.split(':').next().unwrap_or("");
-            let parent = root.join(parent_name);
-            warn!(parent = %parent_name, "fastboot interface -> parent device");
-            for attr in [
-                "busnum", "devnum", "idVendor", "idProduct", "bcdDevice",
-                "version", "bDeviceClass", "bDeviceSubClass", "bDeviceProtocol",
-            ] {
-                let val = read_attr(&parent.join(attr));
-                warn!(%attr, value = %val, "  parent sysfs attr");
-            }
-            if !parent.exists() {
-                warn!("parent device directory {parent_name} does not exist under /sys/bus/usb/devices/");
-            }
-        }
-    }
-}
