@@ -2,16 +2,12 @@
 pub mod args;
 /// Force-fastboot handshake loop CLI handler.
 pub mod force_fastboot;
-/// Scatter parse/plan CLI handler.
-pub mod scatter;
-/// Flash execution CLI handler.
+/// Flash unified handler (scatter show/plan/execute + raw image).
 pub mod flash;
 /// Fastboot device operations CLI handler.
 pub mod device;
 /// Format-data CLI handler.
 pub mod format_data;
-/// Flash-raw CLI handler.
-pub mod flash_raw;
 /// Disable-vbmeta CLI handler.
 pub mod disable_vbmeta;
 

@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand};
+
 use crate::scatter_parser as sp;
 
 #[derive(Parser)]
@@ -11,16 +12,35 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Force a `MediaTek` device into fastboot mode
+    /// Force a `MediaTek` device into fastboot mode via preloader serial handshake
     #[command(name = "force-fastboot")]
     ForceFastboot {
         #[arg(short, long)]
         verbose: bool,
     },
-    /// Inspect MTK scatter files and build flash plans
-    Scatter {
+    /// Flash operations: scatter-based flash plan, inspect, or raw image flash
+    Flash {
         #[command(subcommand)]
-        action: ScatterAction,
+        action: Option<FlashAction>,
+        /// Partition name (for raw image flash, e.g. boot)
+        partition: Option<String>,
+        /// Path to the image file (for raw image flash)
+        image: Option<std::path::PathBuf>,
+        /// Target slot (a or b); auto-detect from device if not set (raw mode only)
+        #[arg(long)]
+        slot: Option<String>,
+        /// Flash to both a and b slots (raw mode only, mutually exclusive with --slot)
+        #[arg(long)]
+        both: bool,
+        /// Enable verbose logging
+        #[arg(short, long)]
+        verbose: bool,
+    },
+    /// Flash empty vbmeta to both slots, disabling dm-verity and AVB verification
+    #[command(name = "disable-vbmeta")]
+    DisableVbmeta {
+        #[arg(short, long)]
+        verbose: bool,
     },
     /// Erase and format userdata, cache, metadata with empty filesystems
     #[command(name = "format-data")]
@@ -30,72 +50,6 @@ pub enum Commands {
         /// Comma-separated filesystem options: casefold, projid, compress
         #[arg(long, value_delimiter = ',')]
         fs_options: Vec<String>,
-    },
-    /// Flash a flash plan to a device over fastboot
-    Flash {
-        /// Path to the scatter file
-        scatter: Option<std::path::PathBuf>,
-
-        /// Dry run: verify device and plan without writing
-        #[arg(long)]
-        dry_run: bool,
-
-        /// Enable verbose logging (trace level)
-        #[arg(short, long)]
-        verbose: bool,
-
-        /// Flash planning mode
-        #[arg(long, default_value = "selective", value_parser = parse_mode)]
-        mode: sp::Mode,
-
-        /// Storage layout selection
-        #[arg(long, default_value = "auto", value_parser = parse_storage)]
-        storage: sp::StorageSelect,
-
-        /// Explicit partition names to include (repeatable)
-        #[arg(long)]
-        part: Vec<String>,
-
-        /// Partition groups to include (repeatable)
-        #[arg(long)]
-        group: Vec<String>,
-
-        /// Directory containing firmware images
-        #[arg(long)]
-        firmware_dir: Option<std::path::PathBuf>,
-
-        /// Verify image file existence and size
-        #[arg(long)]
-        check_images: bool,
-
-        /// Include preloader in dirty-flash mode
-        #[arg(long)]
-        include_preloader: bool,
-    },
-    /// Flash a raw image to a partition (with A/B slot support)
-    #[command(name = "flash-raw")]
-    FlashRaw {
-        /// Partition name (bare, without slot suffix, e.g. boot)
-        partition: Option<String>,
-        /// Path to the image file
-        image: Option<std::path::PathBuf>,
-        /// Target slot (a or b); auto-detect from device if not set
-        #[arg(long)]
-        slot: Option<String>,
-        /// Flash to both a and b slots (mutually exclusive with --slot)
-        #[arg(long)]
-        both: bool,
-        /// Enable verbose logging (trace level)
-        #[arg(short, long)]
-        verbose: bool,
-    },
-    /// Flash empty vbmeta to both slots, disabling dm-verity and AVB verification.
-    /// Equivalent to: --disable-verity --disable-verification --slot=all
-    #[command(name = "disable-vbmeta")]
-    DisableVbmeta {
-        /// Enable verbose logging (trace level)
-        #[arg(short, long)]
-        verbose: bool,
     },
     /// Fastboot device operations
     Device {
@@ -107,38 +61,48 @@ pub enum Commands {
 }
 
 #[derive(Subcommand)]
-pub enum ScatterAction {
-    /// Print parsed scatter metadata
-    Parse {
-        scatter: Option<std::path::PathBuf>,
+pub enum FlashAction {
+    /// Inspect a scatter file, build a flash plan, or execute it
+    Scatter {
+        /// Path to the scatter file
+        path: Option<std::path::PathBuf>,
+        /// Inspect scatter metadata (omit to build/execute a flash plan)
+        #[arg(long)]
+        show: bool,
+        /// With --show: print all metadata as JSON
         #[arg(long)]
         full_json: bool,
-    },
-    /// Build and display a flash plan
-    Plan {
-        scatter: Option<std::path::PathBuf>,
+        /// Plan preview only, don't flash (can combine with --json)
+        #[arg(long)]
+        dry_run: bool,
+        /// With --dry-run: output plan as JSON instead of human-readable
         #[arg(long)]
         json: bool,
-        #[arg(short, long)]
-        verbose: bool,
-        #[arg(long, default_value = "dry-run", value_parser = parse_mode)]
+        /// Flash planning mode
+        #[arg(long, default_value = "selective", value_parser = parse_mode)]
         mode: sp::Mode,
+        /// Storage layout selection
         #[arg(long, default_value = "auto", value_parser = parse_storage)]
         storage: sp::StorageSelect,
+        /// Explicit partition names to include (repeatable)
         #[arg(long)]
         part: Vec<String>,
+        /// Partition groups to include (repeatable)
         #[arg(long)]
         group: Vec<String>,
+        /// Directory containing firmware images
         #[arg(long)]
         firmware_dir: Option<std::path::PathBuf>,
-        #[arg(long)]
-        package_root: Option<std::path::PathBuf>,
+        /// Verify image file existence and size
         #[arg(long)]
         check_images: bool,
-        #[arg(long)]
-        image_search: bool,
+        /// Include preloader in dirty-flash mode
         #[arg(long)]
         include_preloader: bool,
+        /// Also search adjacent directories for images
+        #[arg(long)]
+        image_search: bool,
+        /// Flash even if some slots are incomplete
         #[arg(long)]
         allow_incomplete_slots: bool,
     },
