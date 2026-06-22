@@ -237,6 +237,9 @@ fn parse_xml_node(text: &str) -> std::result::Result<XmlNode, String> {
             _ => {}
         }
         buf.clear();
+        if buf.capacity() > 1_048_576 {
+            buf.shrink_to(4096);
+        }
     }
     Err("empty XML document".to_string())
 }

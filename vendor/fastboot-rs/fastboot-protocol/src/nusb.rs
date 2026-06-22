@@ -379,6 +379,16 @@ impl<'s> DataDownload<'s> {
     }
 }
 
+impl Drop for DataDownload<'_> {
+    fn drop(&mut self) {
+        // Clean up any pending USB transfers if the download was abandoned
+        // without calling finish() (e.g., I/O error between download() and
+        // finish()). Without this, transfers remain pending on the endpoint
+        // until NusbFastBoot is dropped.
+        self.fastboot.ep_out.cancel_all();
+    }
+}
+
 impl DataDownload<'_> {
     /// Total size of the data transfer
     pub fn size(&self) -> u32 {
@@ -459,7 +469,7 @@ impl DataDownload<'_> {
     ///
     /// This should only be called if all data has been queued up (matching the total size)
     #[instrument(skip_all, err)]
-    pub async fn finish(self) -> Result<(), DownloadError> {
+    pub async fn finish(mut self) -> Result<(), DownloadError> {
         if self.left != 0 {
             return Err(DownloadError::IncorrectDataLength {
                 expected: self.size,
@@ -467,8 +477,10 @@ impl DataDownload<'_> {
             });
         }
 
-        if !self.current.is_empty() {
-            self.fastboot.ep_out.submit(self.current);
+        // Swap out self.current to avoid partial move (Drop impl prevents it)
+        let current = std::mem::replace(&mut self.current, Buffer::new(0));
+        if !current.is_empty() {
+            self.fastboot.ep_out.submit(current);
         }
 
         while self.fastboot.ep_out.pending() > 0 {
