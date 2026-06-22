@@ -1,12 +1,12 @@
 use anyhow::{Context, Result};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tracing::{error, info, warn};
 
 use crate::cli::init_stderr_logging;
 use crate::scatter_parser as sp;
 
 /// Parse and print scatter metadata.
-pub fn run_parse(path: &PathBuf, full_json: bool) -> Result<()> {
+pub fn run_parse(path: &Path, full_json: bool) -> Result<()> {
     let scatter = sp::parse_scatter(path)
         .with_context(|| format!("failed to parse {}", path.display()))?;
 
@@ -60,13 +60,13 @@ pub fn run_parse(path: &PathBuf, full_json: bool) -> Result<()> {
 
 /// Build and print a flash plan.
 pub fn run_plan(
-    path: &PathBuf,
+    path: &Path,
     json: bool,
     verbose: bool,
     mode: sp::Mode,
     storage: sp::StorageSelect,
-    parts: &[String],
-    groups: &[String],
+    parts: Vec<String>,
+    groups: Vec<String>,
     firmware_dir: Option<PathBuf>,
     package_root: Option<PathBuf>,
     check_images: bool,
@@ -85,8 +85,8 @@ pub fn run_plan(
     let options = sp::FlashPlanOptions {
         mode,
         storage,
-        parts: parts.to_vec(),
-        groups: groups.to_vec(),
+        parts,
+        groups,
         firmware_dir,
         package_root,
         check_images,

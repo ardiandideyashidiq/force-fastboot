@@ -111,46 +111,55 @@ pub struct ScatterPartition {
 
 impl ScatterPartition {
     /// End offset (`linear_start` + size).
+    #[must_use]
     pub const fn end(&self) -> i64 {
         self.linear_start + self.size
     }
 
     /// Base partition name without slot suffix.
+    #[must_use]
     pub fn base_name(&self) -> String {
         split_base_slot(&self.name).0
     }
 
     /// Slot suffix if present (e.g. `"_a"`, `"_b"`).
+    #[must_use]
     pub fn slot(&self) -> Option<String> {
         split_base_slot(&self.name).1
     }
 
     /// Canonical name for role/safety matching.
+    #[must_use]
     pub fn canonical(&self) -> String {
         canonical_name(&self.name)
     }
 
     /// Region family identifier.
+    #[must_use]
     pub fn region_family(&self) -> String {
         region_family(&self.region)
     }
 
     /// Storage family identifier.
+    #[must_use]
     pub fn storage_family(&self) -> String {
         storage_family(self.storage.as_deref(), Some(&self.layout), Some(&self.region))
     }
 
     /// Whether this partition is flashable by scatter profile.
+    #[must_use]
     pub const fn flashable_by_profile(&self) -> bool {
         self.is_download && self.file_name.is_some() && self.size > 0
     }
 
     /// Safety classification for this partition.
+    #[must_use]
     pub fn safety_class(&self) -> String {
         safety_class(&self.name)
     }
 
     /// Role label for this partition.
+    #[must_use]
     pub fn role(&self) -> String {
         role_for_name(&self.name)
     }
@@ -290,6 +299,7 @@ pub struct FlashAction {
 
 impl FlashAction {
     /// Return the resolved image path for flash actions, if available.
+    #[must_use]
     pub fn image_resolved_path(&self) -> Option<&str> {
         self.image
             .as_ref()?
@@ -298,6 +308,7 @@ impl FlashAction {
     }
 
     /// Return whether the resolved image exists, if known.
+    #[must_use]
     pub fn image_exists(&self) -> Option<bool> {
         self.image.as_ref()?.pointer("/path/exists")?.as_bool()
     }
@@ -355,6 +366,7 @@ pub struct FlashPlan {
 
 // -- internal helper functions used by ScatterPartition methods --
 
+#[must_use]
 pub(crate) fn split_base_slot(name: &str) -> (String, Option<String>) {
     let lower = name.to_lowercase();
     for slot in ["_a", "_b"] {
@@ -370,6 +382,7 @@ pub(crate) fn split_base_slot(name: &str) -> (String, Option<String>) {
     (name.to_string(), None)
 }
 
+#[must_use]
 pub(crate) fn region_family(region: &str) -> String {
     let r = region.to_uppercase();
     if r.starts_with("UFS") {
@@ -381,6 +394,7 @@ pub(crate) fn region_family(region: &str) -> String {
     }
 }
 
+#[must_use]
 pub(crate) fn storage_family(
     storage: Option<&str>,
     layout: Option<&str>,
@@ -398,6 +412,7 @@ pub(crate) fn storage_family(
     }
 }
 
+#[must_use]
 pub(crate) fn chipset_label(platform: Option<&str>, project: Option<&str>) -> Option<String> {
     normalize_chipset_value(platform).or_else(|| normalize_chipset_value(project))
 }

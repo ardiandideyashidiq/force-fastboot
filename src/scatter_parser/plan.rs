@@ -21,6 +21,7 @@ use crate::scatter_parser::types::{
 /// # Errors
 ///
 /// Returns [`Error::InvalidValue`] if partition fields cannot be parsed.
+// Takes `options` by value: fields are moved into the plan without cloning.
 #[expect(clippy::needless_pass_by_value)]
 pub fn build_flash_plan(scatter: &ScatterFile, options: FlashPlanOptions) -> FlashPlan {
     let mut warnings = Vec::new();

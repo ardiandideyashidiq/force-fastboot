@@ -24,10 +24,6 @@ pub enum Error {
     #[error("{0}")]
     InvalidValue(String),
 
-    /// Text encoding could not be detected.
-    #[error("text encoding detection failed: {0}")]
-    Encoding(String),
-
     /// Image basename search found ambiguous matches.
     #[error("{0}")]
     AmbiguousImage(String),

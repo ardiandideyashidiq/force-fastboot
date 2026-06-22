@@ -9,7 +9,9 @@ use std::path::{Component, Path, PathBuf};
 use encoding_rs::{UTF_16BE, UTF_16LE, UTF_8};
 use quick_xml::{events::Event, Reader};
 use serde_json::{json, Map, Value};
+use serde_yaml;
 use sha2::{Digest, Sha256};
+use tracing::warn;
 
 use crate::scatter_parser::error::{Error, Result};
 use crate::scatter_parser::types::{ResolvedPath, ScatterFile, ScatterPartition, region_family};
@@ -73,6 +75,7 @@ pub fn parse_scatter(path: impl AsRef<Path>) -> Result<ScatterFile> {
     })
 }
 
+// Intermediate representation used only during parsing; fields are destructured directly.
 #[expect(dead_code)]
 struct ParsedRawScatter {
     general: Value,
@@ -106,16 +109,13 @@ fn decode_text(path: &Path) -> Result<String> {
 }
 
 fn looks_like_xml(text: &str) -> bool {
-    let lower = text
-        .trim_start_matches(['\u{feff}', '\n', '\r', '\t', ' '])
-        .chars()
-        .take(300)
-        .collect::<String>()
-        .to_lowercase();
-    lower.starts_with("<?xml")
-        || lower.starts_with("<root")
-        || lower.starts_with("<scatter")
-        || lower.starts_with("<da")
+    let trimmed = text.trim_start_matches(['\u{feff}', '\n', '\r', '\t', ' ']);
+    let bytes = trimmed.as_bytes();
+    let len = bytes.len().min(300);
+    (len >= 5 && bytes[..5].eq_ignore_ascii_case(b"<?xml"))
+        || (len >= 5 && bytes[..5].eq_ignore_ascii_case(b"<root"))
+        || (len >= 7 && bytes[..7].eq_ignore_ascii_case(b"<scatter"))
+        || (len >= 3 && bytes[..3].eq_ignore_ascii_case(b"<da"))
 }
 
 // --- XML parsing ---
@@ -409,8 +409,6 @@ fn xml_value(node: &XmlNode) -> Value {
 // --- YAML parsing ---
 
 fn parse_yaml_scatter(text: &str) -> ParsedRawScatter {
-    use serde_yaml;
-
     let records = if let Ok(value) = serde_yaml::from_str::<serde_yaml::Value>(text) {
         if let Ok(json_value) = serde_json::to_value(value) {
             match json_value {
@@ -701,6 +699,7 @@ fn validate_layouts(
 // --- Image path resolution ---
 
 /// Resolve an image file path from a scatter partition's `file_name`.
+#[must_use]
 pub fn resolve_image_path(
     file_name: Option<&str>,
     scatter_dir: Option<&Path>,
@@ -921,6 +920,7 @@ fn unique_basename_search(
 }
 
 /// Detect the kind of image by magic bytes.
+#[must_use]
 pub fn image_magic(path: &Path) -> Option<Value> {
     let mut file = fs::File::open(path).ok()?;
     let mut head = vec![0; 8192];
@@ -953,6 +953,7 @@ pub fn image_magic(path: &Path) -> Option<Value> {
 }
 
 /// Serialize a `ScatterPartition` (and its resolved image) to JSON.
+#[must_use]
 pub fn partition_to_json(
     part: &ScatterPartition,
     scatter_dir: Option<&Path>,
@@ -1054,6 +1055,10 @@ pub fn parse_int(value: &str, field_name: &str) -> Result<i64> {
 }
 
 /// Format byte sizes like the Python parser.
+// Acceptable precision for partition sizes — real values cap at ~TiB, well within f64's 2⁵³.
+#[expect(clippy::cast_precision_loss)]
+#[expect(clippy::cast_sign_loss)]
+#[must_use]
 pub fn human_size(num: i64) -> String {
     let mut n = num as f64;
     for unit in ["B", "KiB", "MiB", "GiB", "TiB"] {
@@ -1141,10 +1146,13 @@ fn normalize_none_string(value: Option<&Value>) -> Option<String> {
     if text.is_empty() {
         return None;
     }
+    let text_upper = text.trim().to_uppercase();
+    if NONE_TOKENS.contains(&text_upper.as_str()) {
+        return None;
+    }
     let normalized = text.replace('\\', "/");
     let last = normalized.rsplit('/').next().unwrap_or_default().trim().to_uppercase();
-    if NONE_TOKENS.contains(&text.trim().to_uppercase().as_str())
-        || NONE_TOKENS.contains(&last.as_str())
+    if NONE_TOKENS.contains(&last.as_str())
     {
         None
     } else {
@@ -1241,11 +1249,11 @@ fn absolutize(path: &Path) -> PathBuf {
     if path.is_absolute() {
         normalize_components(path)
     } else {
-        normalize_components(
-            &std::env::current_dir()
-                .unwrap_or_else(|_| PathBuf::from("."))
-                .join(path),
-        )
+        let cwd = std::env::current_dir().unwrap_or_else(|err| {
+            warn!(%err, "failed to get current directory, using '.'");
+            PathBuf::from(".")
+        });
+        normalize_components(&cwd.join(path))
     }
 }
 
@@ -1302,14 +1310,22 @@ mod tests {
     }
 
     #[test]
-    fn human_size_should_format_bytes() {
+    fn human_size_should_return_zero_for_empty() {
         assert_eq!(human_size(0), "0 B");
+    }
+
+    #[test]
+    fn human_size_should_format_bytes_below_1024() {
         assert_eq!(human_size(1023), "1023 B");
     }
 
     #[test]
-    fn human_size_should_format_kib() {
+    fn human_size_should_format_1_kib() {
         assert_eq!(human_size(1024), "1.00 KiB");
+    }
+
+    #[test]
+    fn human_size_should_format_2_kib() {
         assert_eq!(human_size(2048), "2.00 KiB");
     }
 

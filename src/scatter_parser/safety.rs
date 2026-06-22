@@ -3,6 +3,8 @@
 //! These tables mirror the Python scatter parser's partition groupings and
 //! determine which partitions are flashable in each mode.
 
+use crate::scatter_parser::types::split_base_slot;
+
 pub(crate) const BOOTLOADER_CANONICAL: &[&str] = &[
     "preloader", "lk", "loader_ext", "tee", "trustzone", "tz",
 ];
@@ -41,6 +43,7 @@ pub(crate) const DANGEROUS_CANONICAL: &[&str] = &[
 ];
 
 /// Canonicalize a partition name for role/safety matching.
+#[must_use]
 pub fn canonical_name(name: &str) -> String {
     let (mut base, _) = split_base_slot(&name.to_lowercase());
     base = base.trim().to_string();
@@ -72,6 +75,7 @@ pub fn canonical_name(name: &str) -> String {
 }
 
 /// Return a safety class for a partition name.
+#[must_use]
 pub fn safety_class(name: &str) -> String {
     let canonical = canonical_name(name);
     if IDENTITY_CANONICAL.contains(&canonical.as_str()) {
@@ -134,6 +138,7 @@ pub fn safety_class(name: &str) -> String {
 }
 
 /// Role label for a partition name (more specific than `safety_class`).
+#[must_use]
 pub fn role_for_name(name: &str) -> String {
     let canonical = canonical_name(name);
     if IDENTITY_CANONICAL.contains(&canonical.as_str()) {
@@ -156,21 +161,6 @@ pub fn role_for_name(name: &str) -> String {
         "unknown"
     }
     .to_string()
-}
-
-fn split_base_slot(name: &str) -> (String, Option<String>) {
-    let lower = name.to_lowercase();
-    for slot in ["_a", "_b"] {
-        if let Some(base) = lower.strip_suffix(slot) {
-            if !base.is_empty() {
-                return (
-                    base.to_string(),
-                    Some(slot.trim_start_matches('_').to_string()),
-                );
-            }
-        }
-    }
-    (name.to_string(), None)
 }
 
 fn matches_numbered(value: &str, prefix: &str) -> bool {
@@ -205,8 +195,12 @@ mod tests {
     }
 
     #[test]
-    fn canonical_name_should_pass_through_plain_names() {
+    fn canonical_name_should_pass_through_boot() {
         assert_eq!(c("boot"), "boot");
+    }
+
+    #[test]
+    fn canonical_name_should_pass_through_preloader() {
         assert_eq!(c("preloader"), "preloader");
     }
 
@@ -236,14 +230,42 @@ mod tests {
     }
 
     #[test]
-    fn safety_class_should_classify_known_partitions() {
+    fn safety_class_should_classify_nvram_as_identity() {
         assert_eq!(sc("nvram"), "identity_or_calibration");
+    }
+
+    #[test]
+    fn safety_class_should_classify_userdata_as_unknown() {
         assert_eq!(sc("userdata"), "unknown");
+    }
+
+    #[test]
+    fn safety_class_should_classify_gpt_as_dangerous() {
         assert_eq!(sc("gpt"), "dangerous");
+    }
+
+    #[test]
+    fn safety_class_should_classify_preloader_as_bootloader_critical() {
         assert_eq!(sc("preloader"), "bootloader_critical");
+    }
+
+    #[test]
+    fn safety_class_should_classify_boot_as_boot_critical() {
         assert_eq!(sc("boot"), "boot_critical");
+    }
+
+    #[test]
+    fn safety_class_should_classify_md1img_as_firmware() {
         assert_eq!(sc("md1img"), "firmware");
+    }
+
+    #[test]
+    fn safety_class_should_classify_super_as_android_system() {
         assert_eq!(sc("super"), "android_system");
+    }
+
+    #[test]
+    fn safety_class_should_classify_logo_as_regional() {
         assert_eq!(sc("logo"), "regional");
     }
 
@@ -254,12 +276,32 @@ mod tests {
     }
 
     #[test]
-    fn role_for_name_should_return_specific_roles() {
+    fn role_for_name_should_classify_preloader_as_bootloader() {
         assert_eq!(role_for_name("preloader"), "bootloader_critical");
+    }
+
+    #[test]
+    fn role_for_name_should_classify_boot_as_boot_chain() {
         assert_eq!(role_for_name("boot"), "boot_chain_or_avb");
+    }
+
+    #[test]
+    fn role_for_name_should_classify_md1img_as_modem() {
         assert_eq!(role_for_name("md1img"), "modem_firmware");
+    }
+
+    #[test]
+    fn role_for_name_should_classify_scp_as_mcu() {
         assert_eq!(role_for_name("scp"), "mcu_firmware");
+    }
+
+    #[test]
+    fn role_for_name_should_classify_system_as_android() {
         assert_eq!(role_for_name("system"), "android_dynamic_or_system");
+    }
+
+    #[test]
+    fn role_for_name_should_classify_cust_as_regional() {
         assert_eq!(role_for_name("cust"), "regional_or_branding");
     }
 }
