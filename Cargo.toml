@@ -40,8 +40,8 @@ tokio = { version = "1", features = ["full"] }
 tokio-serial = "5"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "registry"] }
-fastboot-protocol = { git = "https://github.com/ardiandideyashidiq/fastboot-rs", package = "fastboot-protocol" }
-android-sparse-image = { git = "https://github.com/ardiandideyashidiq/fastboot-rs", package = "android-sparse-image" }
+fastboot-protocol = { path = "vendor/fastboot-rs/fastboot-protocol" }
+android-sparse-image = { path = "vendor/fastboot-rs/android-sparse-image" }
 
 [dev-dependencies]
 assert_cmd = "2"
