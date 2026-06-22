@@ -44,6 +44,7 @@ pub(crate) fn skipped_partition(part: &ScatterPartition, reason: &str) -> Skippe
 }
 
 #[derive(Clone, Copy)]
+#[allow(clippy::struct_field_names)]
 pub(crate) struct PlanSummaryCounts {
     pub(crate) skipped_count: usize,
     pub(crate) missing_image_count: usize,

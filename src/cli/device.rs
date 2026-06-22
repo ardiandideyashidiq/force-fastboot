@@ -6,6 +6,11 @@ use crate::cli::init_stderr_logging;
 use crate::flash::executor::BootTarget;
 use crate::flash::FlashExecutor;
 
+/// Run a fastboot device operation.
+///
+/// # Errors
+///
+/// Returns an error if the device is not reachable or the operation fails.
 pub async fn run(verbose: bool, action: DeviceAction) -> Result<()> {
     let level = if verbose { "trace" } else { "info" };
     init_stderr_logging(level);

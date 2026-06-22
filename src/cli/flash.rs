@@ -6,6 +6,13 @@ use crate::cli::init_stderr_logging;
 use crate::flash::FlashExecutor;
 use crate::scatter_parser as sp;
 
+/// Flash a flash plan to a device over fastboot.
+///
+/// # Errors
+///
+/// Returns an error if the scatter file cannot be parsed, the device
+/// is not reachable, or any partition fails to flash.
+#[allow(clippy::too_many_arguments, clippy::fn_params_excessive_bools)]
 pub async fn run(
     scatter: &PathBuf,
     dry_run: bool,

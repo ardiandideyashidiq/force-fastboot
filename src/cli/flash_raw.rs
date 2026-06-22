@@ -1,13 +1,24 @@
-use std::path::PathBuf;
+use std::path::Path;
 use anyhow::{bail, Context, Result};
 use tracing::{error, info, warn};
 
 use crate::cli::init_stderr_logging;
 use crate::flash::FlashExecutor;
 
+/// Flash a raw image to a partition (with A/B slot support).
+///
+/// # Errors
+///
+/// Returns an error if the image does not exist, the partition table
+/// cannot be read, or the device is not reachable.
+///
+/// # Panics
+///
+/// Panics if the device variable `current-slot` contains an unexpected
+/// value when neither `--slot` nor `--both` is provided.
 pub async fn run(
     partition: &str,
-    image: &PathBuf,
+    image: &Path,
     slot: Option<String>,
     both: bool,
     verbose: bool,
@@ -47,15 +58,12 @@ pub async fn run(
     } else if let Some(s) = slot {
         vec![format!("{partition}_{s}")]
     } else {
-        let current = executor.device_vars().get("current-slot").map(|s| s.as_str());
-        match current {
-            Some("a") | Some("b") => {
-                vec![format!("{partition}_{}", current.unwrap())]
-            }
-            _ => {
-                warn!("device has no current-slot variable; flashing to bare partition name");
-                vec![partition.to_string()]
-            }
+        let current = executor.device_vars().get("current-slot").map(String::as_str);
+        if let Some(slot) = current {
+            vec![format!("{partition}_{slot}")]
+        } else {
+            warn!("device has no current-slot variable; flashing to bare partition name");
+            vec![partition.to_string()]
         }
     };
 

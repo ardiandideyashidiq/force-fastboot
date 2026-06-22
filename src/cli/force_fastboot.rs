@@ -6,6 +6,12 @@ use tracing::{debug, info, trace, warn};
 use crate::cli::init_stderr_logging;
 use crate::force_fastboot::{fastboot, serial};
 
+/// Force a `MediaTek` device into fastboot mode via preloader handshake.
+///
+/// # Errors
+///
+/// Returns an error if no preloader serial port is found, the serial
+/// port cannot be opened, or the handshake otherwise fails.
 pub async fn run(verbose: bool) -> Result<()> {
     let default_level = if verbose { "trace" } else { "info" };
     init_stderr_logging(default_level);
@@ -27,7 +33,7 @@ pub async fn run(verbose: bool) -> Result<()> {
 
     info!(%port, "found preloader");
 
-    let mut dev = serial::open_serial(&port).await?;
+    let mut dev = serial::open_serial(&port)?;
     let mut count: u64 = 0;
     let start = Instant::now();
 
@@ -57,7 +63,7 @@ pub async fn run(verbose: bool) -> Result<()> {
                 if let Some(new_port) = serial::wait_for_preloader(true).await? {
                     port = new_port;
                     info!(%port, "reconnected after port loss");
-                    dev = serial::open_serial(&port).await?;
+                    dev = serial::open_serial(&port)?;
                     continue;
                 }
 

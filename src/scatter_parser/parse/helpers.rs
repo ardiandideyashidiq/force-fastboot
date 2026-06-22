@@ -64,7 +64,7 @@ pub fn human_size(num: i64) -> String {
         }
         approx /= 1024;
     }
-    let divisor = 1024u64.pow(unit_idx as u32);
+    let divisor = 1024u64.pow(u32::try_from(unit_idx).unwrap_or(0));
     if divisor == 1 {
         return format!("{n} B");
     }
@@ -257,7 +257,7 @@ mod tests {
 
     #[test]
     fn human_size_should_format_mib() {
-        assert_eq!(human_size(1048576), "1.00 MiB");
+        assert_eq!(human_size(1_048_576), "1.00 MiB");
     }
 
     #[test]

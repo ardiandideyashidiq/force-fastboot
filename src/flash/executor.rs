@@ -20,6 +20,7 @@ pub enum BootTarget {
 }
 
 impl BootTarget {
+    #[must_use]
     pub const fn as_str(&self) -> &'static str {
         match self {
             Self::System => "system",
@@ -36,6 +37,7 @@ pub struct FlashExecutor {
     device_vars: HashMap<String, String>,
 }
 
+#[allow(clippy::missing_errors_doc)]
 impl FlashExecutor {
     /// Connect to the first available fastboot device and query its variables.
     pub async fn connect() -> Result<Self> {
@@ -106,6 +108,7 @@ impl FlashExecutor {
     }
 
     /// Return the cached device variables.
+    #[must_use]
     pub const fn device_vars(&self) -> &HashMap<String, String> {
         &self.device_vars
     }
@@ -227,7 +230,7 @@ impl FlashExecutor {
         for slot in &["a", "b"] {
             let partition = format!("vbmeta_{slot}");
             info!(%partition, "flashing empty vbmeta");
-            let mut sender = self.fb.download(data.len() as u32).await?;
+            let mut sender = self.fb.download(u32::try_from(data.len()).unwrap_or(u32::MAX)).await?;
             sender.extend_from_slice(data).await?;
             sender.finish().await?;
             self.fb.flash(&partition).await?;
@@ -329,7 +332,7 @@ impl FlashExecutor {
         Ok(())
     }
 
-    /// Flash a partition by splitting into chunks that fit max_download_size.
+    /// Flash a partition by splitting into chunks that fit `max_download_size`.
     pub(crate) async fn flash_large_partition(
         &mut self,
         partition: &str,
@@ -337,20 +340,20 @@ impl FlashExecutor {
         file_len: u64,
         max_download: u32,
     ) -> Result<()> {
-        let chunk_size = max_download as u64;
+        let chunk_size = u64::from(max_download);
         let mut file = tokio::fs::File::open(path).await?;
         let mut remaining = file_len;
         let mut chunk_index = 0u32;
         let mut buf = vec![0u8; 1024 * 1024];
 
         while remaining > 0 {
-            let this_chunk = remaining.min(chunk_size) as u32;
+            let this_chunk = u32::try_from(remaining.min(chunk_size)).unwrap_or(u32::MAX);
             info!(%partition, chunk = chunk_index, size = this_chunk, "sending chunk");
 
             let mut sender = self.fb.download(this_chunk).await?;
-            let mut to_send = this_chunk as u64;
+            let mut to_send = u64::from(this_chunk);
             while to_send > 0 {
-                let limit = buf.len().min(to_send as usize);
+                let limit = buf.len().min(usize::try_from(to_send).unwrap_or(usize::MAX));
                 let n = file.read(&mut buf[..limit]).await?;
                 if n == 0 {
                     return Err(FlashError::Io(std::io::Error::new(
@@ -365,7 +368,7 @@ impl FlashExecutor {
             sender.finish().await?;
             self.fb.flash(partition).await?;
 
-            remaining = remaining.saturating_sub(this_chunk as u64);
+            remaining = remaining.saturating_sub(u64::from(this_chunk));
             chunk_index += 1;
         }
 

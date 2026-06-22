@@ -15,8 +15,9 @@ pub enum FsType {
 }
 
 impl FsType {
-    /// Maps a fastboot partition type string to a known FsType.
+    /// Maps a fastboot partition type string to a known `FsType`.
     /// Returns `None` for unsupported types (e.g. "raw", "swap").
+    #[must_use]
     pub fn from_partition_type(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "ext4" => Some(Self::Ext4),
@@ -76,6 +77,12 @@ mod embedded {
 
 /// Extract embedded format-tools to a temporary directory.
 /// Returns the `TempDir` (keeps the dir alive) and the path to the tool root.
+/// Extract embedded format-tools to a temporary directory.
+///
+/// # Errors
+///
+/// Returns an error if the temporary directory cannot be created or
+/// any embedded binary cannot be written to disk.
 pub fn extract_format_tools() -> io::Result<(TempDir, PathBuf)> {
     let dir = TempDir::new()?;
     let root = dir.path().to_path_buf();
@@ -107,6 +114,11 @@ pub fn extract_format_tools() -> io::Result<(TempDir, PathBuf)> {
 // ── Filesystem image generation ──────────────────────────────────────
 
 /// Generate an empty filesystem image at `output` using the bundled tools.
+///
+/// # Errors
+///
+/// Returns an error if filesystem generation fails or the bundled tools
+/// cannot be spawned.
 pub async fn generate_empty_fs(
     tools_dir: &Path,
     output: &Path,
@@ -146,16 +158,15 @@ async fn generate_ext4(
 
     let mut ext_attr = String::from("android_sparse");
     if erase_blk_size != 0 && logical_blk_size != 0 {
-        let mut raid_stride = (logical_blk_size / BLOCK_SIZE as u32) as u64;
-        let mut raid_stripe_width = (erase_blk_size / BLOCK_SIZE as u32) as u64;
+        let mut raid_stride = u64::from(logical_blk_size / 4096);
+        let mut raid_stripe_width = u64::from(erase_blk_size / 4096);
         if logical_blk_size < 8192 {
-            raid_stride = 8192 / BLOCK_SIZE as u64;
+            raid_stride = 8192 / BLOCK_SIZE;
         }
         if raid_stripe_width < raid_stride {
             raid_stripe_width = raid_stride;
         }
-        use std::fmt::Write;
-        write!(ext_attr, ",stride={raid_stride},stripe-width={raid_stripe_width}").unwrap();
+        let _ = std::fmt::write(&mut ext_attr, format_args!(",stride={raid_stride},stripe-width={raid_stripe_width}"));
     }
     cmd.arg("-E").arg(&ext_attr);
     cmd.arg("-O").arg("uninit_bg");
@@ -232,6 +243,7 @@ async fn generate_f2fs(
 
 /// Parse comma-separated fs-options string into a bitmask.
 /// Options: casefold, projid, compress
+#[must_use]
 pub fn parse_fs_options(options: &[String]) -> u32 {
     let mut flags = 0u32;
     for opt in options {

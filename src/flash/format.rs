@@ -49,7 +49,7 @@ impl FlashExecutor {
             match &outcome.status {
                 FormatStatus::Wiped => info!(%partition, "wiped ✓"),
                 FormatStatus::ErasedOnly(fs) => {
-                    info!(%partition, fs_type = %fs, "erased only (unrecognized filesystem)")
+                    info!(%partition, fs_type = %fs, "erased only (unrecognized filesystem)");
                 }
                 FormatStatus::Skipped(reason) => info!(%partition, %reason, "skipped"),
                 FormatStatus::Failed(e) => warn!(%partition, error = %e, "failed"),
@@ -66,6 +66,7 @@ impl FlashExecutor {
     }
 
     /// Erase, generate empty filesystem, download, and flash a single partition.
+    #[allow(clippy::too_many_lines)]
     async fn wipe_partition(
         &mut self,
         partition: &str,
@@ -100,14 +101,11 @@ impl FlashExecutor {
         }
 
         // 3. determine filesystem type
-        let fs_type = match FsType::from_partition_type(&partition_type) {
-            Some(t) => t,
-            None => {
-                return FormatOutcome {
-                    partition: partition.into(),
-                    status: FormatStatus::ErasedOnly(partition_type),
-                };
-            }
+        let Some(fs_type) = FsType::from_partition_type(&partition_type) else {
+            return FormatOutcome {
+                partition: partition.into(),
+                status: FormatStatus::ErasedOnly(partition_type),
+            };
         };
 
         // 4. query partition size

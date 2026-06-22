@@ -19,7 +19,9 @@ use crate::scatter_parser::types::{
 ///
 /// Returns [`Error::InvalidValue`] if partition fields cannot be parsed.
 // Takes `options` by value: fields are moved into the plan without cloning.
+#[must_use]
 #[expect(clippy::needless_pass_by_value)]
+#[allow(clippy::too_many_lines)]
 pub fn build_flash_plan(scatter: &ScatterFile, options: FlashPlanOptions) -> FlashPlan {
     let mut warnings = Vec::new();
     let mut errors = Vec::new();
@@ -212,10 +214,10 @@ mod tests {
         layouts.insert(
             "EMMC".to_string(),
             vec![
-                synthetic_part("boot_a", true, true, 0x400000),
-                synthetic_part("boot_b", false, false, 0x400000),
-                synthetic_part("dtbo_a", true, true, 0x100000),
-                synthetic_part("dtbo_b", false, false, 0x100000),
+                synthetic_part("boot_a", true, true, 0x0040_0000),
+                synthetic_part("boot_b", false, false, 0x0040_0000),
+                synthetic_part("dtbo_a", true, true, 0x0010_0000),
+                synthetic_part("dtbo_b", false, false, 0x0010_0000),
                 userdata_part(),
             ],
         );
@@ -236,7 +238,7 @@ mod tests {
     fn build_flash_plan_should_select_ufs_layout_by_default() {
         let mut layouts = std::collections::BTreeMap::new();
         layouts.insert("EMMC".to_string(), vec![]);
-        layouts.insert("UFS".to_string(), vec![synthetic_part("boot", true, true, 0x400000)]);
+        layouts.insert("UFS".to_string(), vec![synthetic_part("boot", true, true, 0x0040_0000)]);
         let scatter = ScatterFile {
             path: std::path::PathBuf::from("test.xml"),
             format: "xml".to_string(),
@@ -259,10 +261,10 @@ mod tests {
         layouts.insert(
             "EMMC".to_string(),
             vec![
-                synthetic_part("boot_a", true, true, 0x400000),
-                synthetic_part("boot_b", true, true, 0x400000),
-                synthetic_part("dtbo_a", true, true, 0x100000),
-                synthetic_part("dtbo_b", true, true, 0x100000),
+                synthetic_part("boot_a", true, true, 0x0040_0000),
+                synthetic_part("boot_b", true, true, 0x0040_0000),
+                synthetic_part("dtbo_a", true, true, 0x0010_0000),
+                synthetic_part("dtbo_b", true, true, 0x0010_0000),
                 userdata_part(),
             ],
         );

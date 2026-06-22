@@ -1,6 +1,6 @@
 //! Shared utility functions for the scatter parser.
 
-/// Split a partition name into (base_name, optional_slot).
+/// Split a partition name into (`base_name`, `optional_slot`).
 #[must_use]
 pub(crate) fn split_base_slot(name: &str) -> (String, Option<String>) {
     let lower = name.to_lowercase();

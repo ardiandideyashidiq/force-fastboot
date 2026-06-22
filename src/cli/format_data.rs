@@ -5,6 +5,11 @@ use crate::cli::init_stderr_logging;
 use crate::flash::FlashExecutor;
 use crate::format::generator;
 
+/// Erase and format userdata, cache, and metadata.
+///
+/// # Errors
+///
+/// Returns an error if the device is not reachable or formatting fails.
 pub async fn run(verbose: bool, fs_options: Vec<String>) -> Result<()> {
     if verbose {
         init_stderr_logging("trace");

@@ -6,6 +6,10 @@ use crate::flash::FlashExecutor;
 
 /// Flash the vendored empty vbmeta image to both slots with AVB flags=3.
 /// This disables dm-verity and AVB verification.
+///
+/// # Errors
+///
+/// Returns an error if the device is not reachable or flashing fails.
 pub async fn run(verbose: bool) -> Result<()> {
     let level = if verbose { "trace" } else { "info" };
     init_stderr_logging(level);

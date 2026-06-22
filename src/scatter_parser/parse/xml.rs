@@ -23,6 +23,7 @@ impl XmlNode {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 pub(crate) fn parse_xml_scatter(text: &str) -> Result<ParsedRawScatter> {
     let root = parse_xml_node(text).map_err(Error::Xml)?;
 
@@ -113,17 +114,15 @@ pub(crate) fn parse_xml_scatter(text: &str) -> Result<ParsedRawScatter> {
             })
             .collect::<Vec<_>>();
         if !direct_parts.is_empty() {
-            let joined = direct_parts
-                .iter()
-                .map(|entry| {
-                    format!(
-                        "{} {}",
-                        value_to_string(entry.get("storage")).unwrap_or_default(),
-                        value_to_string(entry.get("region")).unwrap_or_default()
-                    )
-                })
-                .collect::<String>()
-                .to_uppercase();
+            let mut joined = String::new();
+            for entry in &direct_parts {
+                let _ = std::fmt::write(&mut joined, format_args!(
+                    "{} {}",
+                    value_to_string(entry.get("storage")).unwrap_or_default(),
+                    value_to_string(entry.get("region")).unwrap_or_default()
+                ));
+            }
+            let joined = joined.to_uppercase();
             layouts.insert(
                 if joined.contains("UFS") { "UFS" } else { "EMMC" }.to_string(),
                 direct_parts,

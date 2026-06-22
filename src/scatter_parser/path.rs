@@ -9,6 +9,7 @@ use crate::scatter_parser::types::ResolvedPath;
 
 /// Resolve an image file path from a scatter partition's `file_name`.
 #[must_use]
+#[allow(clippy::too_many_lines)]
 pub fn resolve_image_path(
     file_name: Option<&str>,
     scatter_dir: Option<&Path>,

@@ -29,7 +29,8 @@ async fn main() -> Result<()> {
                 ScatterAction::Parse { scatter: Some(scatter), full_json } => {
                     pawflash::cli::scatter::run_parse(&scatter, full_json)?;
                 }
-                ScatterAction::Parse { scatter: None, .. } => {
+                ScatterAction::Parse { scatter: None, .. }
+                | ScatterAction::Plan { scatter: None, .. } => {
                     print_help("scatter")?;
                 }
                 ScatterAction::Plan { scatter: Some(scatter), json, verbose, mode, storage, part, group, firmware_dir, package_root, check_images, image_search, include_preloader, allow_incomplete_slots } => {
@@ -48,9 +49,6 @@ async fn main() -> Result<()> {
                         include_preloader,
                         allow_incomplete_slots,
                     )?;
-                }
-                ScatterAction::Plan { scatter: None, .. } => {
-                    print_help("scatter")?;
                 }
             }
         }

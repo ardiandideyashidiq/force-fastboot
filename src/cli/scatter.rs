@@ -6,6 +6,10 @@ use crate::cli::init_stderr_logging;
 use crate::scatter_parser as sp;
 
 /// Parse and print scatter metadata.
+///
+/// # Errors
+///
+/// Returns an error if the file cannot be read or parsed.
 pub fn run_parse(path: &Path, full_json: bool) -> Result<()> {
     init_stderr_logging("info");
     let scatter = sp::parse_scatter(path)
@@ -60,6 +64,11 @@ pub fn run_parse(path: &Path, full_json: bool) -> Result<()> {
 }
 
 /// Build and print a flash plan.
+///
+/// # Errors
+///
+/// Returns an error if the scatter file cannot be parsed.
+#[allow(clippy::too_many_arguments, clippy::fn_params_excessive_bools)]
 pub fn run_plan(
     path: &Path,
     json: bool,

@@ -190,6 +190,7 @@ pub struct ScatterFile {
 
 impl ScatterFile {
     /// Return a canonical chipset label derived from scatter metadata.
+    #[must_use]
     pub fn chipset(&self) -> Option<String> {
         chipset_label(self.platform.as_deref(), self.project.as_deref())
     }
@@ -197,6 +198,7 @@ impl ScatterFile {
 
 /// Flash plan options.
 #[derive(Debug, Clone)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct FlashPlanOptions {
     /// Flash planning mode.
     pub mode: Mode,

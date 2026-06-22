@@ -11,7 +11,7 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Force a MediaTek device into fastboot mode
+    /// Force a `MediaTek` device into fastboot mode
     #[command(name = "force-fastboot")]
     ForceFastboot {
         #[arg(short, long)]

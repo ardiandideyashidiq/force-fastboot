@@ -41,9 +41,14 @@ fn is_candidate_serial_port(name: &str) -> bool {
     }
 }
 
-pub async fn open_serial(port: &str) -> Result<tokio_serial::SerialStream> {
-    debug!(%port, baud = BAUD, "opening serial port");
+/// Open a serial port to the preloader.
+///
+/// # Errors
+///
+/// Returns an error if the port cannot be opened.
+pub fn open_serial(port: &str) -> Result<tokio_serial::SerialStream> {
     use tokio_serial::SerialPortBuilderExt;
+    debug!(%port, baud = BAUD, "opening serial port");
     tokio_serial::new(port, BAUD)
         .timeout(PORT_TIMEOUT)
         .open_native_async()
@@ -54,6 +59,11 @@ pub async fn open_serial(port: &str) -> Result<tokio_serial::SerialStream> {
         .inspect(|_| info!(%port, "serial port opened"))
 }
 
+/// Wait for a new preloader serial port to appear.
+///
+/// # Errors
+///
+/// Returns an error if serial port enumeration fails.
 pub async fn wait_for_preloader(
     check_fastboot: bool,
 ) -> Result<Option<String>> {
@@ -112,7 +122,7 @@ mod tests {
 
     #[tokio::test]
     async fn open_serial_should_error_on_bogus_port() {
-        let err = open_serial("/dev/__force_fastboot_nonexistent__").await.unwrap_err();
+        let err = open_serial("/dev/__force_fastboot_nonexistent__").unwrap_err();
         assert!(
             err.to_string().contains("/dev/__force_fastboot_nonexistent__"),
             "error should mention the port name: {err}",

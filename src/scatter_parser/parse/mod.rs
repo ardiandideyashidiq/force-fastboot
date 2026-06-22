@@ -119,9 +119,8 @@ fn looks_like_xml(text: &str) -> bool {
     let trimmed = text.trim_start_matches(['\u{feff}', '\n', '\r', '\t', ' ']);
     let bytes = trimmed.as_bytes();
     let len = bytes.len().min(300);
-    (len >= 5 && bytes[..5].eq_ignore_ascii_case(b"<?xml"))
-        || (len >= 5 && bytes[..5].eq_ignore_ascii_case(b"<root"))
-        || (len >= 7 && bytes[..7].eq_ignore_ascii_case(b"<scatter"))
+    (len >= 7 && bytes[..7].eq_ignore_ascii_case(b"<scatter"))
+        || (len >= 5 && (bytes[..5].eq_ignore_ascii_case(b"<?xml") || bytes[..5].eq_ignore_ascii_case(b"<root")))
         || (len >= 3 && bytes[..3].eq_ignore_ascii_case(b"<da"))
 }
 
