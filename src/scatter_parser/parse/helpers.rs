@@ -47,22 +47,31 @@ pub fn parse_int(value: &str, field_name: &str) -> Result<i64> {
 }
 
 /// Format byte sizes like the Python parser.
-// Acceptable precision for partition sizes — real values cap at ~TiB, well within f64's 2⁵³.
-#[expect(clippy::cast_precision_loss)]
-#[expect(clippy::cast_sign_loss)]
+/// Uses exact integer arithmetic (no f64 precision loss).
 #[must_use]
 pub fn human_size(num: i64) -> String {
-    let mut n = num as f64;
-    for unit in ["B", "KiB", "MiB", "GiB", "TiB"] {
-        if n.abs() < 1024.0 || unit == "TiB" {
-            if unit == "B" {
-                return format!("{} B", n as i64);
-            }
-            return format!("{n:.2} {unit}");
-        }
-        n /= 1024.0;
+    if num < 0 {
+        return format!("{num} B");
     }
-    format!("{num} B")
+    let n = u64::try_from(num).unwrap_or(0);
+    let units = ["B", "KiB", "MiB", "GiB", "TiB"];
+    let mut approx = n;
+    let mut unit_idx = 0;
+    for (i, _unit) in units.iter().enumerate() {
+        if approx < 1024 || i == units.len() - 1 {
+            unit_idx = i;
+            break;
+        }
+        approx /= 1024;
+    }
+    let divisor = 1024u64.pow(unit_idx as u32);
+    if divisor == 1 {
+        return format!("{n} B");
+    }
+    let whole = n / divisor;
+    let remainder = n % divisor;
+    let frac = remainder * 100 / divisor;
+    format!("{whole}.{frac:02} {}", units[unit_idx])
 }
 
 pub(crate) fn scalar_json(value: &str) -> Value {
@@ -249,6 +258,16 @@ mod tests {
     #[test]
     fn human_size_should_format_mib() {
         assert_eq!(human_size(1048576), "1.00 MiB");
+    }
+
+    #[test]
+    fn human_size_should_format_1_5_kib() {
+        assert_eq!(human_size(1536), "1.50 KiB");
+    }
+
+    #[test]
+    fn human_size_should_return_raw_bytes_for_negative() {
+        assert_eq!(human_size(-1), "-1 B");
     }
 
     #[test]

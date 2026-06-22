@@ -37,7 +37,6 @@ pub(crate) fn parse_xml_scatter(text: &str) -> Result<ParsedRawScatter> {
         return Ok(ParsedRawScatter {
             general: json!({}),
             layouts: BTreeMap::new(),
-            warnings: Vec::new(),
             platform: None,
             project: None,
             format: "checksum_xml".to_string(),
@@ -158,7 +157,6 @@ pub(crate) fn parse_xml_scatter(text: &str) -> Result<ParsedRawScatter> {
     Ok(ParsedRawScatter {
         general: general_value,
         layouts,
-        warnings: Vec::new(),
         platform,
         project,
         format: "xml".to_string(),

@@ -82,10 +82,13 @@ pub(crate) fn parse_yaml_scatter(text: &str) -> ParsedRawScatter {
     let general_value = Value::Object(general);
     let platform = find_general_value(&general_value, "platform");
     let project = find_general_value(&general_value, "project");
+
+    // Intent: plumb warnings through ParsedRawScatter when callers need them.
+    drop(warnings);
+
     ParsedRawScatter {
         general: general_value,
         layouts,
-        warnings,
         platform,
         project,
         format: "yaml".to_string(),

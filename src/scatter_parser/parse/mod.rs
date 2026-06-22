@@ -85,11 +85,9 @@ pub fn parse_scatter(path: impl AsRef<Path>) -> Result<ScatterFile> {
 }
 
 // Intermediate representation used only during parsing; fields are destructured directly.
-#[expect(dead_code)]
 pub(crate) struct ParsedRawScatter {
     general: Value,
     layouts: BTreeMap<String, Vec<Map<String, Value>>>,
-    warnings: Vec<String>,
     platform: Option<String>,
     project: Option<String>,
     format: String,
