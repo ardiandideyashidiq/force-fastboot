@@ -65,6 +65,7 @@ fn main() -> Result<()> {
         info!("already in fastboot mode — no handshake needed");
         fastboot::list_fastboot_devices();
         summary_info(start_all, 0);
+        pause_on_exit();
         return Ok(());
     }
 
@@ -143,8 +144,19 @@ fn main() -> Result<()> {
 
     summary_info(start_all, count);
 
+    pause_on_exit();
     Ok(())
 }
+
+#[cfg(windows)]
+fn pause_on_exit() {
+    use std::io::Read;
+    println!("Press Enter to exit...");
+    let _ = std::io::stdin().read(&mut [0u8]);
+}
+
+#[cfg(not(windows))]
+fn pause_on_exit() {}
 
 fn summary_info(start_all: Instant, sends: u64) {
     let total = start_all.elapsed().as_secs_f32();
