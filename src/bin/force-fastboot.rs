@@ -1,6 +1,3 @@
-mod fastboot;
-mod serial;
-
 use anyhow::{Context, Result};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::io::Write;
@@ -8,6 +5,9 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 use tracing::{debug, info, trace, warn};
 use tracing_subscriber::{fmt, prelude::*, registry::Registry, EnvFilter};
+
+use force_fastboot::fastboot;
+use force_fastboot::serial;
 
 const LOG_FILE: &str = "handshake.log";
 
@@ -44,6 +44,21 @@ fn init_logging(default_level: &str) -> tracing_appender::non_blocking::WorkerGu
     guard
 }
 
+fn summary_info(start_all: Instant, sends: u64) {
+    let total = start_all.elapsed().as_secs_f32();
+    info!(total_secs = total, sends, "force-fastboot complete");
+}
+
+#[cfg(windows)]
+fn pause_on_exit() {
+    use std::io::Read;
+    println!("Press Enter to exit...");
+    let _ = std::io::stdin().read(&mut [0u8]);
+}
+
+#[cfg(not(windows))]
+const fn pause_on_exit() {}
+
 fn main() -> Result<()> {
     let verbose = std::env::args().any(|a| a == "-v" || a == "--verbose");
     let default_level = if verbose { "trace" } else { "info" };
@@ -55,7 +70,7 @@ fn main() -> Result<()> {
     let pb = ProgressBar::new_spinner();
     pb.set_style(
         ProgressStyle::with_template("{spinner} {msg}")
-            .unwrap()
+            .context("invalid progress template")?
             .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
     );
     pb.enable_steady_tick(Duration::from_millis(100));
@@ -89,7 +104,7 @@ fn main() -> Result<()> {
                 let _ = dev.flush();
                 count += 1;
 
-                if count.is_multiple_of(5) {
+                if count % 5 == 0 {
                     debug!(sends = count, "batch progress");
                 }
             }
@@ -105,19 +120,16 @@ fn main() -> Result<()> {
                 pb.set_message("Port lost, waiting for reconnect or fastboot...");
                 warn!("port {port} lost, waiting for reconnect");
 
-                match serial::wait_for_preloader(true, &pb)? {
-                    Some(new_port) => {
-                        port = new_port;
-                        pb.println(format!("Reconnected on {port}"));
-                        info!(%port, "reconnected after port loss");
-                        dev = serial::open_serial(&port)?;
-                        continue;
-                    }
-                    None => {
-                        info!("preloader wait returned None — fastboot detected");
-                        break;
-                    }
+                if let Some(new_port) = serial::wait_for_preloader(true, &pb)? {
+                    port = new_port;
+                    pb.println(format!("Reconnected on {port}"));
+                    info!(%port, "reconnected after port loss");
+                    dev = serial::open_serial(&port)?;
+                    continue;
                 }
+
+                info!("preloader wait returned None — fastboot detected");
+                break;
             }
         }
 
@@ -146,19 +158,4 @@ fn main() -> Result<()> {
 
     pause_on_exit();
     Ok(())
-}
-
-#[cfg(windows)]
-fn pause_on_exit() {
-    use std::io::Read;
-    println!("Press Enter to exit...");
-    let _ = std::io::stdin().read(&mut [0u8]);
-}
-
-#[cfg(not(windows))]
-fn pause_on_exit() {}
-
-fn summary_info(start_all: Instant, sends: u64) {
-    let total = start_all.elapsed().as_secs_f32();
-    info!(total_secs = total, sends, "force-fastboot complete");
 }
