@@ -193,7 +193,10 @@ impl FlashExecutor {
         }
 
         let wiped = outcomes.iter().filter(|o| matches!(o.status, FormatStatus::Wiped)).count();
-        info!(wiped, failed = outcomes.len() - wiped, "format-data complete");
+        let failed = outcomes.iter().filter(|o| matches!(o.status, FormatStatus::Failed(_))).count();
+        let erased_only = outcomes.iter().filter(|o| matches!(o.status, FormatStatus::ErasedOnly(_))).count();
+        let skipped = outcomes.iter().filter(|o| matches!(o.status, FormatStatus::Skipped(_))).count();
+        info!(wiped, erased_only, skipped, failed, "format-data complete");
         FormatDataResult { outcomes }
     }
 

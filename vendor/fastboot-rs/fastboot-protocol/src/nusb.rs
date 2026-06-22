@@ -171,7 +171,7 @@ impl NusbFastBoot {
         Ok(FastBootResponse::from_bytes(&resp)?)
     }
 
-    #[tracing::instrument(skip_all, err)]
+    #[tracing::instrument(skip_all, err(level = tracing::Level::DEBUG))]
     async fn handle_responses(&mut self) -> Result<String, NusbFastBootError> {
         loop {
             let resp = self.read_response().await?;
@@ -190,7 +190,7 @@ impl NusbFastBoot {
         }
     }
 
-    #[tracing::instrument(skip_all, err)]
+    #[tracing::instrument(skip_all, err(level = tracing::Level::DEBUG))]
     async fn execute<S: Display>(
         &mut self,
         cmd: FastBootCommand<S>,
