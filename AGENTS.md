@@ -26,6 +26,13 @@ cargo test <test_name>  # e.g. cargo test parse_int_should_accept_decimal
 - All tests are in-module `#[cfg(test)]`; no integration tests under `tests/`
 - No generated code, no migrations, no codegen steps
 
+## Code style
+
+- **Modular code required.** Keep files focused and under ~400 lines. If a file grows beyond that, split it into a directory module with submodules — each submodule gets one clear responsibility.
+- No `pub(crate)` helper functions living in type-definition files. Extract shared helpers into their own module (e.g. `scatter_parser/util.rs`).
+- When splitting, use `sort` in the directory listing above to show submodules in order.
+- **Structured logging required.** Always use `tracing` with fields (`info!(field = value, "msg")`), never `println!`/`eprintln!` or format strings in log calls. Pass values as fields, not in the message string.
+
 ## Notable config
 
 - **Rust edition 2024**, MSRV 1.85
