@@ -86,7 +86,7 @@ fn linux_sysfs_fastboot_mode() -> bool {
         let subclass = read_trimmed(base.join("bInterfaceSubClass"));
         let protocol = read_trimmed(base.join("bInterfaceProtocol"));
 
-        trace!(%name, %class, %subclass, %protocol, "sysfs interface");
+        debug!(%name, %class, %subclass, %protocol, "sysfs interface");
 
         if class == "ff" && subclass == "42" && protocol == "03" {
             debug!(%name, "found fastboot interface via sysfs");

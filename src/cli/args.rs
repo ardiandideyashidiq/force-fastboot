@@ -77,9 +77,9 @@ pub enum Commands {
     #[command(name = "flash-raw")]
     FlashRaw {
         /// Partition name (bare, without slot suffix, e.g. boot)
-        partition: String,
+        partition: Option<String>,
         /// Path to the image file
-        image: std::path::PathBuf,
+        image: Option<std::path::PathBuf>,
         /// Target slot (a or b); auto-detect from device if not set
         #[arg(long)]
         slot: Option<String>,
@@ -101,13 +101,13 @@ pub enum Commands {
 pub enum ScatterAction {
     /// Print parsed scatter metadata
     Parse {
-        scatter: std::path::PathBuf,
+        scatter: Option<std::path::PathBuf>,
         #[arg(long)]
         full_json: bool,
     },
     /// Build and display a flash plan
     Plan {
-        scatter: std::path::PathBuf,
+        scatter: Option<std::path::PathBuf>,
         #[arg(long)]
         json: bool,
         #[arg(short, long)]

@@ -66,9 +66,11 @@ impl FlashExecutor {
             .await
             .map_err(|_| FlashError::NoDevice)?;
 
-        let info = devices
-            .next()
-            .ok_or(FlashError::NoDevice)?;
+        let info = devices.next().ok_or_else(|| {
+            #[cfg(target_os = "linux")]
+            diagnose_fastboot_sysfs();
+            FlashError::NoDevice
+        })?;
 
         debug!(
             vidpid = format_args!("{:04x}:{:04x}", info.vendor_id(), info.product_id()),
@@ -77,7 +79,28 @@ impl FlashExecutor {
         );
 
         let mut fb = NusbFastBoot::from_info(&info).await?;
-        let device_vars = fb.get_all_vars().await?;
+
+        // Some bootloaders (MediaTek) hang on getvar:all, so query each
+        // needed variable individually with a timeout.
+        let mut device_vars: HashMap<String, String> = HashMap::new();
+        for var in ["version", "product", "serialno", "current-slot", "max-download-size"] {
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(2),
+                fb.get_var(var),
+            )
+                .await
+            {
+                Ok(Ok(v)) => {
+                    device_vars.insert(var.to_string(), v);
+                }
+                Ok(Err(e)) => {
+                    debug!(%var, error = %e, "getvar failed");
+                }
+                Err(_) => {
+                    debug!(%var, "getvar timed out after 2s");
+                }
+            }
+        }
 
         info!(
             product = device_vars.get("product").map_or("?", |s| s.as_str()),
@@ -99,9 +122,15 @@ impl FlashExecutor {
         self.fb.get_var(var).await.map_err(FlashError::from)
     }
 
-    /// Get all fastboot variables from the device.
+    /// Get all fastboot variables from the device (with 10s timeout).
     pub async fn get_all_vars(&mut self) -> Result<HashMap<String, String>> {
-        self.fb.get_all_vars().await.map_err(FlashError::from)
+        tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            self.fb.get_all_vars(),
+        )
+            .await
+            .map_err(|_| FlashError::NoDevice)?
+            .map_err(FlashError::from)
     }
 
     /// Reboot the device (to system by default).
@@ -474,21 +503,13 @@ impl FlashExecutor {
         let mut file = tokio::fs::File::open(path).await?;
         let mut sender = self.fb.download(size).await?;
 
+        let mut buf = vec![0u8; 1024 * 1024];
         loop {
-            let left = sender.left();
-            if left == 0 {
+            let n = file.read(&mut buf).await?;
+            if n == 0 {
                 break;
             }
-            let buf = sender.get_mut_data(left as usize).await?;
-            let total = left as usize;
-            let mut offset = 0;
-            while offset < total {
-                let n = file.read(&mut buf[offset..total]).await?;
-                if n == 0 {
-                    break;
-                }
-                offset += n;
-            }
+            sender.extend_from_slice(&buf[..n]).await?;
         }
 
         sender.finish().await?;
@@ -504,32 +525,29 @@ impl FlashExecutor {
         file_len: u64,
         max_download: u32,
     ) -> Result<()> {
-        let chunk_size = max_download as usize;
+        let chunk_size = max_download as u64;
         let mut file = tokio::fs::File::open(path).await?;
         let mut remaining = file_len;
         let mut chunk_index = 0u32;
+        let mut buf = vec![0u8; 1024 * 1024];
 
         while remaining > 0 {
-            let this_chunk = remaining.min(chunk_size as u64) as u32;
+            let this_chunk = remaining.min(chunk_size) as u32;
             info!(%partition, chunk = chunk_index, size = this_chunk, "sending chunk");
 
             let mut sender = self.fb.download(this_chunk).await?;
-
-            loop {
-                let left = sender.left();
-                if left == 0 {
-                    break;
+            let mut to_send = this_chunk as u64;
+            while to_send > 0 {
+                let limit = buf.len().min(to_send as usize);
+                let n = file.read(&mut buf[..limit]).await?;
+                if n == 0 {
+                    return Err(FlashError::Io(std::io::Error::new(
+                        std::io::ErrorKind::UnexpectedEof,
+                        "unexpected EOF while streaming chunk",
+                    )));
                 }
-                let buf = sender.get_mut_data(left as usize).await?;
-                let total = left as usize;
-                let mut offset = 0;
-                while offset < total {
-                    let n = file.read(&mut buf[offset..total]).await?;
-                    if n == 0 {
-                        break;
-                    }
-                    offset += n;
-                }
+                sender.extend_from_slice(&buf[..n]).await?;
+                to_send = to_send.saturating_sub(n as u64);
             }
 
             sender.finish().await?;
@@ -551,4 +569,63 @@ fn parse_getvar_hex_u64(s: &str) -> Option<u64> {
         return None;
     }
     u64::from_str_radix(s, 16).ok()
+}
+
+/// When nusb enumeration returns no fastboot devices, scan `/sys/bus/usb/devices/`
+/// directly and log every interface with its class/subclass/protocol + parent device
+/// attributes. Helps diagnose why `nusb::probe_device()` silently dropped the device.
+#[cfg(target_os = "linux")]
+fn diagnose_fastboot_sysfs() {
+    use std::fs;
+    use std::path::Path;
+
+    let root = Path::new("/sys/bus/usb/devices");
+    let Ok(entries) = fs::read_dir(root) else {
+        warn!("cannot read /sys/bus/usb/devices");
+        return;
+    };
+
+    let read_attr = |p: &Path| -> String {
+        fs::read_to_string(p)
+            .map(|s| s.trim().to_ascii_lowercase())
+            .unwrap_or_default()
+    };
+
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+
+        if !name.contains(':') {
+            continue;
+        }
+
+        let base = entry.path();
+        let class = read_attr(&base.join("bInterfaceClass"));
+        let subclass = read_attr(&base.join("bInterfaceSubClass"));
+        let protocol = read_attr(&base.join("bInterfaceProtocol"));
+        let is_me = class == "ff" && subclass == "42" && protocol == "03";
+        let marker = if is_me { " <<< FASTBOOT" } else { "" };
+        warn!(
+            iface = %name,
+            class,
+            subclass,
+            protocol,
+            "sysfs interface{marker}",
+        );
+
+        if is_me {
+            let parent_name = name.split(':').next().unwrap_or("");
+            let parent = root.join(parent_name);
+            warn!(parent = %parent_name, "fastboot interface -> parent device");
+            for attr in [
+                "busnum", "devnum", "idVendor", "idProduct", "bcdDevice",
+                "version", "bDeviceClass", "bDeviceSubClass", "bDeviceProtocol",
+            ] {
+                let val = read_attr(&parent.join(attr));
+                warn!(%attr, value = %val, "  parent sysfs attr");
+            }
+            if !parent.exists() {
+                warn!("parent device directory {parent_name} does not exist under /sys/bus/usb/devices/");
+            }
+        }
+    }
 }

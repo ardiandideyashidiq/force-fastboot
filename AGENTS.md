@@ -28,6 +28,10 @@ cargo test <test_name>  # e.g. cargo test parse_int_should_accept_decimal
 - All tests are in-module `#[cfg(test)]`; no integration tests under `tests/`
 - No generated code, no migrations, no codegen steps
 
+## Debugging rule
+
+- **Never guess root cause.** Always add debug logging first (via vendored tracing or a `diagnose_*` helper), run the failing command, and read the output to determine the actual failure.
+
 ## Code style
 
 - **Modular code required.** Keep files focused and under ~400 lines. If a file grows beyond that, split it into a directory module with submodules — each submodule gets one clear responsibility.

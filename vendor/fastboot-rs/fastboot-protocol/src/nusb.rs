@@ -6,7 +6,7 @@ use nusb::Endpoint;
 pub use nusb::{transfer::TransferError, Device, DeviceInfo, Interface};
 use std::{collections::HashMap, fmt::Display, io::Write};
 use thiserror::Error;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 use tracing::{instrument, trace};
 
 use crate::protocol::FastBootResponse;
@@ -14,9 +14,24 @@ use crate::protocol::{FastBootCommand, FastBootResponseParseError};
 
 /// List fastboot devices
 pub async fn devices() -> Result<impl Iterator<Item = DeviceInfo>, nusb::Error> {
-    Ok(nusb::list_devices()
-        .await?
-        .filter(|d| NusbFastBoot::find_fastboot_interface(d).is_some()))
+    let all: Vec<_> = nusb::list_devices().await?.collect();
+    debug!(total = all.len(), "nusb raw devices");
+    for d in &all {
+        debug!(
+            vid = format_args!("0x{:04x}", d.vendor_id()),
+            pid = format_args!("0x{:04x}", d.product_id()),
+            ifaces = d.interfaces().count(),
+            fastboot = NusbFastBoot::find_fastboot_interface(d).is_some(),
+            "nusb device",
+        );
+    }
+    let fastboot: Vec<_> = all
+        .into_iter()
+        .filter(|d| NusbFastBoot::find_fastboot_interface(d).is_some())
+        .collect();
+    let count = fastboot.len();
+    debug!(count, "filtered fastboot devices");
+    Ok(fastboot.into_iter())
 }
 
 /// Fastboot communication errors

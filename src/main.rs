@@ -2,6 +2,15 @@ use anyhow::Result;
 use clap::{CommandFactory, Parser};
 use pawflash::cli::args::{Cli, Commands, ScatterAction, parse_mode, parse_storage};
 
+fn print_help(sub_name: &str) -> Result<()> {
+    let mut cmd = Cli::command();
+    if let Some(sub) = cmd.find_subcommand_mut(sub_name) {
+        sub.print_help()?;
+        println!();
+    }
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -17,24 +26,13 @@ async fn main() -> Result<()> {
         }
         Some(Commands::Scatter { action }) => {
             match action {
-                ScatterAction::Parse { scatter, full_json } => {
+                ScatterAction::Parse { scatter: Some(scatter), full_json } => {
                     pawflash::cli::scatter::run_parse(&scatter, full_json)?;
                 }
-                ScatterAction::Plan {
-                    scatter,
-                    json,
-                    verbose,
-                    mode,
-                    storage,
-                    part,
-                    group,
-                    firmware_dir,
-                    package_root,
-                    check_images,
-                    image_search,
-                    include_preloader,
-                    allow_incomplete_slots,
-                } => {
+                ScatterAction::Parse { scatter: None, .. } => {
+                    print_help("scatter")?;
+                }
+                ScatterAction::Plan { scatter: Some(scatter), json, verbose, mode, storage, part, group, firmware_dir, package_root, check_images, image_search, include_preloader, allow_incomplete_slots } => {
                     pawflash::cli::scatter::run_plan(
                         &scatter,
                         json,
@@ -50,6 +48,9 @@ async fn main() -> Result<()> {
                         include_preloader,
                         allow_incomplete_slots,
                     )?;
+                }
+                ScatterAction::Plan { scatter: None, .. } => {
+                    print_help("scatter")?;
                 }
             }
         }
@@ -68,18 +69,16 @@ async fn main() -> Result<()> {
             ).await?;
         }
         Some(Commands::Flash { scatter: None, .. }) => {
-            use clap::CommandFactory;
-            let mut cmd = Cli::command();
-            if let Some(flash_cmd) = cmd.find_subcommand_mut("flash") {
-                flash_cmd.print_help()?;
-                println!();
-            }
+            print_help("flash")?;
         }
         Some(Commands::FormatData { verbose, fs_options }) => {
             pawflash::cli::format_data::run(verbose, fs_options).await?;
         }
-        Some(Commands::FlashRaw { partition, image, slot, both, verbose }) => {
+        Some(Commands::FlashRaw { partition: Some(partition), image: Some(image), slot, both, verbose }) => {
             pawflash::cli::flash_raw::run(&partition, &image, slot, both, verbose).await?;
+        }
+        Some(Commands::FlashRaw { .. }) => {
+            print_help("flash-raw")?;
         }
         Some(Commands::Device { action }) => {
             pawflash::cli::device::run(action).await?;
