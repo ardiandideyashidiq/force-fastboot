@@ -1,0 +1,12 @@
+[package]
+name = "force-fastboot"
+version = "0.1.0"
+edition = "2024"
+
+[lints.rust]
+unsafe_code = "deny"
+unused = "deny"
+
+[dependencies]
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
