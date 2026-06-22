@@ -3,7 +3,6 @@ mod serial;
 
 use anyhow::{Context, Result};
 use indicatif::{ProgressBar, ProgressStyle};
-use std::fs;
 use std::io::Write;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
@@ -105,9 +104,6 @@ fn main() -> Result<()> {
         "Fastboot mode detected after {count} sends in {elapsed:.1}s"
     ));
     info!("Fastboot mode detected after {count} sends in {elapsed:.1}s");
-
-    fs::write("comport.txt", &port)
-        .with_context(|| format!("failed to write comport.txt with port {port}"))?;
 
     println!("Handshake complete");
     info!("Handshake complete");
