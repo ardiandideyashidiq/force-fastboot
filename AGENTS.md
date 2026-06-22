@@ -22,8 +22,9 @@ cargo test <test_name>  # e.g. cargo test parse_int_should_accept_decimal
 ## Project structure
 
 - Binary entry: `src/main.rs` — clap CLI with subcommands
-- Library entry: `src/lib.rs` — modules: `cli`, `force_fastboot`, `scatter_parser`, `flash`
+- Library entry: `src/lib.rs` — modules: `cli`, `force_fastboot`, `scatter_parser`, `flash`, `format`
 - Vendored deps: `vendor/fastboot-rs/` — fork of `boardswarm/fastboot-rs` with extra commands + edition 2024
+- Bundled format tools: `vendor/format-tools/` — prebuilt `mke2fs` + `make_f2fs` binaries (AOSP) for `format-data`, embedded via `include_bytes!`
 - All tests are in-module `#[cfg(test)]`; no integration tests under `tests/`
 - No generated code, no migrations, no codegen steps
 
@@ -56,6 +57,7 @@ pawflash force-fastboot [-v]
 pawflash scatter parse <scatter-path> [--full-json]
 pawflash scatter plan <scatter-path> [--json] [--mode dry-run|selective|dirty-flash] [--storage auto|all|ufs|emmc] [--part ...] [--group ...] [--firmware-dir ...] [--check-images] [--include-preloader]
 pawflash flash <scatter-path> [--mode selective|dirty-flash] [--storage auto|all|ufs|emmc] [--part ...] [--group ...] [--firmware-dir ...] [--check-images] [--include-preloader] [--dry-run] [-v]
+pawflash format-data [-v] [--fs-options casefold,projid,compress]
 pawflash device info
 pawflash device reboot [system|bootloader|fastbootd|recovery]
 pawflash device lock|unlock

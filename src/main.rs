@@ -67,6 +67,9 @@ async fn main() -> Result<()> {
                 include_preloader,
             ).await?;
         }
+        Some(Commands::FormatData { verbose, fs_options }) => {
+            pawflash::cli::format_data::run(verbose, fs_options).await?;
+        }
         Some(Commands::Device { action }) => {
             pawflash::cli::device::run(action).await?;
         }

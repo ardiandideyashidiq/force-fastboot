@@ -29,6 +29,9 @@ pub enum FlashError {
 
     #[error("flash action failed: {partition}: {reason}")]
     ActionFailed { partition: String, reason: String },
+
+    #[error("filesystem generator failed: {reason}")]
+    GeneratorFailed { reason: String },
 }
 
 pub type Result<T> = std::result::Result<T, FlashError>;

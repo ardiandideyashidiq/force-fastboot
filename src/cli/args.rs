@@ -23,6 +23,15 @@ pub enum Commands {
         #[command(subcommand)]
         action: ScatterAction,
     },
+    /// Erase and format userdata, cache, metadata with empty filesystems
+    #[command(name = "format-data")]
+    FormatData {
+        #[arg(short, long)]
+        verbose: bool,
+        /// Comma-separated filesystem options: casefold, projid, compress
+        #[arg(long, value_delimiter = ',')]
+        fs_options: Vec<String>,
+    },
     /// Flash a flash plan to a device over fastboot
     Flash {
         /// Path to the scatter file

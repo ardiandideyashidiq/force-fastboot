@@ -8,6 +8,8 @@ pub mod scatter;
 pub mod flash;
 /// Fastboot device operations CLI handler.
 pub mod device;
+/// Format-data CLI handler.
+pub mod format_data;
 
 /// Initialize stderr-only tracing for CLI commands.
 pub fn init_stderr_logging(level: &str) {
