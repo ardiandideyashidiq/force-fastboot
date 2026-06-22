@@ -32,6 +32,12 @@ pub enum FlashError {
 
     #[error("filesystem generator failed: {reason}")]
     GeneratorFailed { reason: String },
+
+    #[error("failed to parse sparse image header")]
+    SparseParseFailed,
+
+    #[error("failed to split sparse image for download")]
+    SparseSplitFailed,
 }
 
 pub type Result<T> = std::result::Result<T, FlashError>;

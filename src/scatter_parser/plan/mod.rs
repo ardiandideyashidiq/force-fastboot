@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde_json::{json, Value};
 use tracing::debug;
 use crate::scatter_parser::types::{
-    FlashPlan, FlashPlanOptions, ScatterFile,
+    FlashPlan, FlashPlanOptions, ScatterFile, SkippedPartition,
 };
 
 /// Build a safe flash plan for a parsed scatter file.
@@ -100,6 +100,30 @@ pub fn build_flash_plan(scatter: &ScatterFile, options: FlashPlanOptions) -> Fla
 
     slot::synthesize_slot_actions_if_needed(&selected_parts, &mut actions);
 
+    // Apply --exclude filter: remove any action whose partition matches.
+    if !options.exclude.is_empty() {
+        let excluded_names =
+            slot::expand_requested_names(&options.exclude, &available_names);
+        let excluded_set: BTreeSet<_> = excluded_names.iter().collect();
+        let (kept, removed): (Vec<_>, Vec<_>) = actions
+            .into_iter()
+            .partition(|a| !excluded_set.contains(&a.partition.to_lowercase()));
+        for action in removed {
+            skipped.push(SkippedPartition {
+                partition: action.partition,
+                layout: action.layout,
+                region: action.region,
+                reason: "excluded by --exclude".into(),
+                safety_class: action.safety_class,
+                file_name: action.image_type,
+            });
+        }
+        actions = kept;
+        if actions.is_empty() {
+            warnings.push("all eligible partitions were excluded by --exclude".into());
+        }
+    }
+
     let incomplete_slots = slot::check_incomplete_slots(
         &selected_parts,
         &actions,
@@ -173,6 +197,7 @@ pub fn build_flash_plan(scatter: &ScatterFile, options: FlashPlanOptions) -> Fla
             "allow_incomplete_slots": options.allow_incomplete_slots,
             "parts": options.parts,
             "groups": options.groups,
+            "exclude": options.exclude,
         }),
         summary,
         actions,

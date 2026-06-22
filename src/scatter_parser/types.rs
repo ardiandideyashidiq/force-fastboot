@@ -208,6 +208,8 @@ pub struct FlashPlanOptions {
     pub parts: Vec<String>,
     /// Partition groups to include.
     pub groups: Vec<String>,
+    /// Partition names to exclude.
+    pub exclude: Vec<String>,
     /// Directory containing firmware images.
     pub firmware_dir: Option<std::path::PathBuf>,
     /// Package root directory for resolving image paths.
@@ -229,6 +231,7 @@ impl Default for FlashPlanOptions {
             storage: StorageSelect::Auto,
             parts: Vec::new(),
             groups: Vec::new(),
+            exclude: Vec::new(),
             firmware_dir: None,
             package_root: None,
             check_images: false,

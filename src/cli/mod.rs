@@ -10,6 +10,8 @@ pub mod device;
 pub mod format_data;
 /// Disable-vbmeta CLI handler.
 pub mod disable_vbmeta;
+/// Interactive flash prompt flow.
+pub mod interactive;
 
 /// Initialize stderr-only tracing for CLI commands.
 pub fn init_stderr_logging(level: &str) {

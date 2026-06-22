@@ -80,6 +80,9 @@ pub enum FlashAction {
         /// Partition groups to include (repeatable)
         #[arg(long)]
         group: Vec<String>,
+        /// Partition names to exclude from the flash plan (repeatable)
+        #[arg(long)]
+        exclude: Vec<String>,
         /// Directory containing firmware images
         #[arg(long)]
         firmware_dir: Option<std::path::PathBuf>,

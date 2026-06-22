@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use fastboot_protocol::nusb::NusbFastBoot;
+use indicatif::ProgressBar;
 use tokio::io::AsyncReadExt;
 use tracing::{debug, info, trace, warn};
 
@@ -171,7 +172,13 @@ impl FlashExecutor {
 
     /// Execute a flash plan. Skips failed actions and continues.
     /// In dry-run mode, verifies device + images without writing.
-    pub async fn execute_plan(&mut self, plan: &FlashPlan, dry_run: bool) -> FlashResult {
+    /// When `progress_bar` is `Some`, partition flash progress is shown on the bar.
+    pub async fn execute_plan(
+        &mut self,
+        plan: &FlashPlan,
+        dry_run: bool,
+        progress_bar: Option<&ProgressBar>,
+    ) -> FlashResult {
         let all_actions: Vec<_> = plan.actions.iter().filter(|a| a.action == "flash").collect();
         let total = all_actions.len();
         let mut outcomes = Vec::with_capacity(total);
@@ -192,7 +199,7 @@ impl FlashExecutor {
             trace!(%partition, "processing flash action");
 
             let result = self
-                .flash_partition(action, dry_run, max_download)
+                .flash_partition(action, dry_run, max_download, progress_bar)
                 .await;
 
             match result {
@@ -206,6 +213,9 @@ impl FlashExecutor {
                 }
                 Err(e) => {
                     warn!(%partition, error = %e, "flash failed, skipping");
+                    if let Some(pb) = progress_bar {
+                        pb.abandon_with_message(format!("{partition} failed"));
+                    }
                     outcomes.push(FlashOutcome {
                         partition: partition.clone(),
                         success: false,
@@ -250,18 +260,41 @@ impl FlashExecutor {
             .and_then(|s| fastboot_protocol::protocol::parse_u32(&s).ok())
             .unwrap_or(256 * 1024 * 1024);
 
-        self.flash_image_to_partition(partition, image_path, max_download).await
+        self.flash_image_to_partition(partition, image_path, max_download, None).await
     }
 
     /// Shared helper: erase partition, then download+flash (single or chunked).
+    /// Detects Android sparse images and routes to the sparse-aware handler.
     async fn flash_image_to_partition(
         &mut self,
         partition: &str,
         path: &Path,
         max_download: u32,
+        progress_bar: Option<&ProgressBar>,
     ) -> Result<()> {
+        // Route Android sparse images through the sparse-aware handler.
+        if crate::flash::sparse::is_sparse_image(path).await.unwrap_or(false) {
+            let file_len = tokio::fs::metadata(path).await?.len();
+            return crate::flash::sparse::flash_sparse_image(
+                &mut self.fb,
+                partition,
+                path,
+                file_len,
+                max_download,
+                progress_bar,
+            )
+            .await;
+        }
+
         let file_len = tokio::fs::metadata(path).await?.len();
         let size = u32::try_from(file_len).unwrap_or(u32::MAX);
+
+        if let Some(pb) = progress_bar {
+            pb.set_length(file_len);
+            pb.set_prefix(partition.to_string());
+            pb.reset();
+            pb.set_position(0);
+        }
 
         debug!(%partition, file_size = file_len, max_download, "flashing image to partition");
 
@@ -269,9 +302,9 @@ impl FlashExecutor {
 
         if size > max_download {
             info!(%partition, size = file_len, %max_download, "image exceeds max download, splitting into chunks");
-            self.flash_large_partition(partition, path, file_len, max_download).await
+            self.flash_large_partition(partition, path, file_len, max_download, progress_bar).await
         } else {
-            self.flash_raw_partition(partition, path, size).await
+            self.flash_raw_partition(partition, path, size, progress_bar).await
         }
     }
 
@@ -280,6 +313,7 @@ impl FlashExecutor {
         action: &crate::scatter_parser::types::FlashAction,
         dry_run: bool,
         max_download: u32,
+        progress_bar: Option<&ProgressBar>,
     ) -> Result<()> {
         let partition = &action.partition;
         let Some(image_path) = action.image_resolved_path() else {
@@ -307,7 +341,7 @@ impl FlashExecutor {
             return Ok(());
         }
 
-        self.flash_image_to_partition(partition, path, max_download).await
+        self.flash_image_to_partition(partition, path, max_download, progress_bar).await
     }
 
     /// Flash a partition that fits in a single download.
@@ -316,22 +350,31 @@ impl FlashExecutor {
         partition: &str,
         path: &Path,
         size: u32,
+        progress_bar: Option<&ProgressBar>,
     ) -> Result<()> {
         debug!(%partition, file_size = size, "flashing raw partition");
         let mut file = tokio::fs::File::open(path).await?;
         let mut sender = self.fb.download(size).await?;
 
         let mut buf = vec![0u8; 1024 * 1024];
+        let mut written = 0u64;
         loop {
             let n = file.read(&mut buf).await?;
             if n == 0 {
                 break;
             }
             sender.extend_from_slice(&buf[..n]).await?;
+            written += n as u64;
+            if let Some(pb) = progress_bar {
+                pb.set_position(written);
+            }
         }
 
         sender.finish().await?;
         self.fb.flash(partition).await?;
+        if let Some(pb) = progress_bar {
+            pb.set_position(u64::from(size));
+        }
         debug!(%partition, "raw partition flash complete");
         Ok(())
     }
@@ -343,6 +386,7 @@ impl FlashExecutor {
         path: &Path,
         file_len: u64,
         max_download: u32,
+        progress_bar: Option<&ProgressBar>,
     ) -> Result<()> {
         debug!(%partition, file_len, max_download, "starting chunked flash");
         let chunk_size = u64::from(max_download);
@@ -374,7 +418,15 @@ impl FlashExecutor {
             self.fb.flash(partition).await?;
 
             remaining = remaining.saturating_sub(u64::from(this_chunk));
+
+            if let Some(pb) = progress_bar {
+                pb.inc(u64::from(this_chunk));
+            }
+
             chunk_index += 1;
+        }
+        if let Some(pb) = progress_bar {
+            pb.set_position(file_len);
         }
 
         debug!(%partition, chunks = chunk_index, "chunked flash complete");

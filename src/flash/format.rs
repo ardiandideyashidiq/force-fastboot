@@ -191,10 +191,10 @@ impl FlashExecutor {
         info!(%partition, size = file_len, fs_type = %partition_type, "flashing empty filesystem");
 
         let result = if size > max_download {
-            self.flash_large_partition(partition, &output_path, file_len, max_download)
+            self.flash_large_partition(partition, &output_path, file_len, max_download, None)
                 .await
         } else {
-            self.flash_raw_partition(partition, &output_path, size).await
+            self.flash_raw_partition(partition, &output_path, size, None).await
         };
 
         match result {

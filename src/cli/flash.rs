@@ -20,6 +20,7 @@ struct ScatterConfig<'a> {
     storage: sp::StorageSelect,
     parts: &'a [String],
     groups: &'a [String],
+    exclude: &'a [String],
     firmware_dir: Option<&'a Path>,
     check_images: bool,
     include_preloader: bool,
@@ -60,6 +61,7 @@ pub async fn run(
             storage,
             ref part,
             ref group,
+            ref exclude,
             ref firmware_dir,
             check_images,
             include_preloader,
@@ -72,6 +74,18 @@ pub async fn run(
             };
             let scatter_path = p.clone();
 
+            // When no explicit parts/groups and mode is selective (default),
+            // launch interactive mode instead of returning an empty plan.
+            if !show
+                && !dry_run
+                && mode == sp::Mode::Selective
+                && part.is_empty()
+                && group.is_empty()
+                && !json
+            {
+                return crate::cli::interactive::run(&scatter_path, exclude).await;
+            }
+
             let cfg = ScatterConfig {
                 scatter_path: &scatter_path,
                 show,
@@ -82,6 +96,7 @@ pub async fn run(
                 storage,
                 parts: part,
                 groups: group,
+                exclude,
                 firmware_dir: firmware_dir.as_deref(),
                 check_images,
                 include_preloader,
@@ -135,6 +150,7 @@ async fn run_scatter(cfg: &ScatterConfig<'_>) -> Result<()> {
         storage: cfg.storage,
         parts: cfg.parts.to_vec(),
         groups: cfg.groups.to_vec(),
+        exclude: cfg.exclude.to_vec(),
         firmware_dir: cfg.firmware_dir.map(Path::to_path_buf),
         package_root: None,
         check_images: cfg.check_images,
@@ -177,7 +193,7 @@ async fn run_scatter(cfg: &ScatterConfig<'_>) -> Result<()> {
     let mut executor = FlashExecutor::connect().await?;
     debug!("connected, executing flash plan");
 
-    let result = executor.execute_plan(&plan, false).await;
+    let result = executor.execute_plan(&plan, false, None).await;
 
     info!(
         total = result.total,

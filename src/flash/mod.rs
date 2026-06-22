@@ -3,6 +3,7 @@ pub mod error;
 pub mod executor;
 pub mod format;
 pub mod results;
+pub mod sparse;
 pub mod vbmeta;
 
 pub use error::FlashError;
