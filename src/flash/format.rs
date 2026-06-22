@@ -186,16 +186,16 @@ impl FlashExecutor {
             }
         };
 
-        let size = u32::try_from(file_len).unwrap_or(u32::MAX);
+        info!(%partition, size = file_len, fs_type = %partition_type, "flashing empty filesystem via sparse wrap");
 
-        info!(%partition, size = file_len, fs_type = %partition_type, "flashing empty filesystem");
-
-        let result = if size > max_download {
-            self.flash_large_partition(partition, &output_path, file_len, max_download, None)
-                .await
-        } else {
-            self.flash_raw_partition(partition, &output_path, size, None).await
-        };
+        let result = crate::flash::sparse::flash_sparse_wrapped(
+            &mut self.fb,
+            partition,
+            &output_path,
+            file_len,
+            max_download,
+        )
+        .await;
 
         match result {
             Ok(()) => FormatOutcome {

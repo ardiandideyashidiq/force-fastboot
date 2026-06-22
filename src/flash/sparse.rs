@@ -9,7 +9,7 @@ use std::io::SeekFrom;
 use std::path::Path;
 
 use android_sparse_image::{
-    split::split_image, ChunkHeader, FileHeader, FileHeaderBytes,
+    split::{split_image, split_raw}, ChunkHeader, FileHeader, FileHeaderBytes,
     CHUNK_HEADER_BYTES_LEN, FILE_HEADER_BYTES_LEN,
 };
 use indicatif::ProgressBar;
@@ -163,5 +163,73 @@ pub(crate) async fn flash_sparse_image(
     }
 
     debug!(%partition, total_download, "sparse flash complete");
+    Ok(())
+}
+
+/// Flash a raw image by wrapping it in Android sparse format splits.
+///
+/// Uses `split_raw()` to convert the raw file into sparse-format splits
+/// that each fit within `max_download`.  The bootloader expands them
+/// on-device, avoiding transmission of large zero-filled regions.
+pub(crate) async fn flash_sparse_wrapped(
+    fb: &mut fastboot_protocol::nusb::NusbFastBoot,
+    partition: &str,
+    path: &Path,
+    file_len: u64,
+    max_download: u32,
+) -> Result<()> {
+    debug!(%partition, file_len, max_download, "wrapping raw image in sparse format");
+
+    let raw_size = usize::try_from(file_len)
+        .map_err(|_| FlashError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "file too large for split_raw",
+        )))?;
+    let splits = split_raw(raw_size, max_download)
+        .map_err(|_| FlashError::SparseSplitFailed)?;
+
+    info!(%partition, split_count = splits.len(), "raw image split into sparse chunks");
+
+    let mut file = tokio::fs::File::open(path).await?;
+
+    // ---- erase partition once, then flash each split ----
+    fb.erase(partition).await?;
+
+    for (i, split) in splits.iter().enumerate() {
+        debug!(%partition, part = i, "sending sparse-wrapped split");
+
+        let sparse_size = u32::try_from(split.sparse_size())
+            .map_err(|_| FlashError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "sparse split size exceeds u32 range",
+            )))?;
+        let mut sender = fb.download(sparse_size).await?;
+
+        // file header for this split
+        sender.extend_from_slice(&split.header.to_bytes()).await?;
+
+        // chunk headers + data for each chunk in this split
+        for chunk in &split.chunks {
+            sender.extend_from_slice(&chunk.header.to_bytes()).await?;
+
+            if chunk.size > 0 {
+                file.seek(SeekFrom::Start(chunk.offset as u64)).await?;
+
+                let mut remaining = chunk.size;
+                let mut buf = vec![0u8; 1024 * 1024];
+                while remaining > 0 {
+                    let to_read = buf.len().min(remaining);
+                    read_exact_padded(&mut file, &mut buf[..to_read]).await?;
+                    sender.extend_from_slice(&buf[..to_read]).await?;
+                    remaining = remaining.saturating_sub(to_read);
+                }
+            }
+        }
+
+        sender.finish().await?;
+        fb.flash(partition).await?;
+    }
+
+    debug!(%partition, splits = splits.len(), "sparse-wrapped flash complete");
     Ok(())
 }

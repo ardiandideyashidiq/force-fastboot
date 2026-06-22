@@ -22,6 +22,11 @@ fn confirm(prompt: &str) -> Result<bool> {
     Ok(line.is_empty() || line.eq_ignore_ascii_case("y") || line.eq_ignore_ascii_case("yes"))
 }
 
+fn confirm_n(prompt: &str) -> Result<bool> {
+    let line = read_line(&format!("{prompt} [y/N]"))?;
+    Ok(!line.is_empty() && (line.eq_ignore_ascii_case("y") || line.eq_ignore_ascii_case("yes")))
+}
+
 fn display_image_name(action: &sp::FlashAction) -> String {
     let path = action.image_resolved_path();
     path.and_then(|p| Path::new(p).file_name().map(|n| n.to_string_lossy().to_string()))
@@ -87,7 +92,7 @@ async fn handle_flash_result(
         eprintln!();
     }
 
-    if result.succeeded > 0 && confirm("Format userdata, cache, metadata?")? {
+    if result.succeeded > 0 && confirm_n("Format userdata, cache, metadata?")? {
         eprintln!("  Formatting...");
         let format_result = executor.format_data(0).await;
         let wiped = format_result
