@@ -11,9 +11,9 @@ use tracing_subscriber::{fmt, prelude::*, registry::Registry, EnvFilter};
 
 const LOG_FILE: &str = "handshake.log";
 
-fn init_logging() -> tracing_appender::non_blocking::WorkerGuard {
+fn init_logging(default_level: &str) -> tracing_appender::non_blocking::WorkerGuard {
     let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("trace"));
+        .unwrap_or_else(|_| EnvFilter::new(default_level));
 
     let file_appender = tracing_appender::rolling::never(".", LOG_FILE);
     let (file_writer, guard) = tracing_appender::non_blocking(file_appender);
@@ -39,13 +39,15 @@ fn init_logging() -> tracing_appender::non_blocking::WorkerGuard {
 
     tracing::subscriber::set_global_default(subscriber)
         .expect("init_logging called more than once");
-    debug!("logging initialized, file={LOG_FILE}, default_level=trace");
+    debug!("logging initialized, file={LOG_FILE}, default_level={default_level}");
 
     guard
 }
 
 fn main() -> Result<()> {
-    let _log_guard = init_logging();
+    let verbose = std::env::args().any(|a| a == "-v" || a == "--verbose");
+    let default_level = if verbose { "trace" } else { "info" };
+    let _log_guard = init_logging(default_level);
     let start_all = Instant::now();
 
     info!("force-fastboot starting");
