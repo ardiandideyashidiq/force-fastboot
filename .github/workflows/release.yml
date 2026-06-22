@@ -28,6 +28,10 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      - name: Install system deps (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev
+
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}

@@ -2244,3 +2244,25 @@
 2026-06-22T12:27:56.585981Z TRACE serial port candidate check port=/dev/ttyS9 candidate=false
 2026-06-22T12:27:56.585998Z TRACE skipping non-candidate serial port port=/dev/ttyS9
 2026-06-22T12:27:56.586018Z DEBUG serial port scan candidates=
+2026-06-22T12:28:40.115561Z  INFO force-fastboot starting
+2026-06-22T12:28:40.117117Z  INFO waiting for preloader serial port
+2026-06-22T12:28:40.117184Z  INFO waiting for preloader serial port check_fastboot=false
+2026-06-22T12:28:48.735686Z  INFO new preloader serial port appeared port=/dev/ttyACM0 iterations=30
+2026-06-22T12:28:48.735803Z  INFO found preloader port=/dev/ttyACM0
+2026-06-22T12:28:48.776370Z  INFO serial port opened port=/dev/ttyACM0
+2026-06-22T12:28:50.288577Z  WARN serial write failed err=Broken pipe port=/dev/ttyACM0 sends=3
+2026-06-22T12:28:50.290739Z  WARN port /dev/ttyACM0 lost, waiting for reconnect
+2026-06-22T12:28:50.290765Z  INFO waiting for preloader serial port check_fastboot=true
+2026-06-22T12:28:53.733599Z  INFO new preloader serial port appeared port=/dev/ttyACM0 iterations=12
+2026-06-22T12:28:53.733742Z  INFO reconnected after port loss port=/dev/ttyACM0
+2026-06-22T12:28:53.774121Z  INFO serial port opened port=/dev/ttyACM0
+2026-06-22T12:28:55.284039Z  WARN serial write failed err=Broken pipe port=/dev/ttyACM0 sends=6
+2026-06-22T12:28:55.287762Z  WARN port /dev/ttyACM0 lost, waiting for reconnect
+2026-06-22T12:28:55.287860Z  INFO waiting for preloader serial port check_fastboot=true
+2026-06-22T12:29:03.304556Z  INFO fastboot detected while waiting for preloader, returning None
+2026-06-22T12:29:03.304685Z  INFO preloader wait returned None — fastboot detected
+2026-06-22T12:29:03.304818Z  INFO handshake succeeded sends=6 elapsed_secs=14.528216361999512
+2026-06-22T12:29:03.307669Z  INFO force-fastboot complete total_secs=23.192110061645508 sends=6
+2026-06-22T12:29:29.962093Z  INFO force-fastboot starting
+2026-06-22T12:29:29.963296Z  INFO already in fastboot mode — no handshake needed
+2026-06-22T12:29:29.964225Z  INFO force-fastboot complete total_secs=0.002134684007614851 sends=0
