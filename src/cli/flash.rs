@@ -8,6 +8,25 @@ use crate::cli::args::{Cli, FlashAction};
 use crate::flash::FlashExecutor;
 use crate::scatter_parser as sp;
 
+/// Grouped config for scatter operations. Avoids passing 14 individual arguments.
+#[expect(clippy::struct_excessive_bools)]
+struct ScatterConfig<'a> {
+    scatter_path: &'a Path,
+    show: bool,
+    full_json: bool,
+    dry_run: bool,
+    json: bool,
+    mode: sp::Mode,
+    storage: sp::StorageSelect,
+    parts: &'a [String],
+    groups: &'a [String],
+    firmware_dir: Option<&'a Path>,
+    check_images: bool,
+    include_preloader: bool,
+    image_search: bool,
+    allow_incomplete_slots: bool,
+}
+
 fn print_flash_help() -> Result<()> {
     let mut cmd = Cli::command();
     if let Some(flash) = cmd.find_subcommand_mut("flash") {
@@ -47,41 +66,39 @@ pub async fn run(
             image_search,
             allow_incomplete_slots,
         }) => {
-            let scatter_path = match path {
-                Some(p) => p.clone(),
-                None => {
-                    print_flash_help()?;
-                    return Ok(());
-                }
+            let Some(p) = path else {
+                print_flash_help()?;
+                return Ok(());
             };
+            let scatter_path = p.clone();
 
-            run_scatter(
-                &scatter_path,
+            let cfg = ScatterConfig {
+                scatter_path: &scatter_path,
                 show,
                 full_json,
                 dry_run,
                 json,
                 mode,
                 storage,
-                part,
-                group,
-                firmware_dir.as_deref(),
+                parts: part,
+                groups: group,
+                firmware_dir: firmware_dir.as_deref(),
                 check_images,
                 include_preloader,
                 image_search,
                 allow_incomplete_slots,
-            )
-            .await?;
+            };
+            run_scatter(&cfg).await?;
         }
         None => {
-            if partition.is_none() || image.is_none() {
+            let Some(partition) = partition else {
                 print_flash_help()?;
                 return Ok(());
-            }
-
-            let partition = partition.unwrap();
-            let image = image.unwrap();
-
+            };
+            let Some(image) = image else {
+                print_flash_help()?;
+                return Ok(());
+            };
             run_raw_image(&partition, &image, slot, both).await?;
         }
     }
@@ -91,36 +108,22 @@ pub async fn run(
 
 // ── Scatter: show metadata / plan / execute ────────────────────────
 
-async fn run_scatter(
-    scatter_path: &Path,
-    show: bool,
-    full_json: bool,
-    dry_run: bool,
-    json: bool,
-    mode: sp::Mode,
-    storage: sp::StorageSelect,
-    parts: &[String],
-    groups: &[String],
-    firmware_dir: Option<&Path>,
-    check_images: bool,
-    include_preloader: bool,
-    image_search: bool,
-    allow_incomplete_slots: bool,
-) -> Result<()> {
+async fn run_scatter(cfg: &ScatterConfig<'_>) -> Result<()> {
     debug!(
-        ?scatter_path, show, dry_run, ?mode, parts = %parts.join(","),
+        scatter_path = %cfg.scatter_path.display(), show = cfg.show, dry_run = cfg.dry_run, ?cfg.mode,
+        parts = %cfg.parts.join(","),
         "run_scatter entered",
     );
 
     // ── Mode 1: Show scatter metadata (was: scatter parse) ──────────
-    if show {
-        return show_scatter_metadata(scatter_path, full_json);
+    if cfg.show {
+        return show_scatter_metadata(cfg.scatter_path, cfg.full_json);
     }
 
     // ── Parse scatter and build plan (shared) ──────────────────────
-    info!(?scatter_path, "parsing scatter file");
-    let parsed = sp::parse_scatter(scatter_path)
-        .with_context(|| format!("failed to parse {}", scatter_path.display()))?;
+    info!(scatter_path = %cfg.scatter_path.display(), "parsing scatter file");
+    let parsed = sp::parse_scatter(cfg.scatter_path)
+        .with_context(|| format!("failed to parse {}", cfg.scatter_path.display()))?;
     debug!(
         "scatter parsed: {} partitions across {} layouts",
         parsed.layouts.values().map(Vec::len).sum::<usize>(),
@@ -128,16 +131,16 @@ async fn run_scatter(
     );
 
     let options = sp::FlashPlanOptions {
-        mode,
-        storage,
-        parts: parts.to_vec(),
-        groups: groups.to_vec(),
-        firmware_dir: firmware_dir.map(Path::to_path_buf),
+        mode: cfg.mode,
+        storage: cfg.storage,
+        parts: cfg.parts.to_vec(),
+        groups: cfg.groups.to_vec(),
+        firmware_dir: cfg.firmware_dir.map(Path::to_path_buf),
         package_root: None,
-        check_images,
-        image_search,
-        include_preloader,
-        allow_incomplete_slots,
+        check_images: cfg.check_images,
+        image_search: cfg.image_search,
+        include_preloader: cfg.include_preloader,
+        allow_incomplete_slots: cfg.allow_incomplete_slots,
     };
 
     info!("building flash plan");
@@ -149,18 +152,18 @@ async fn run_scatter(
         for e in &plan.errors {
             error!("  - {e}");
         }
-        if !dry_run {
+        if !cfg.dry_run {
             bail!("flash plan errors prevent execution (use --dry-run to see full report)");
         }
     }
 
-    if plan.actions.is_empty() && !dry_run {
+    if plan.actions.is_empty() && !cfg.dry_run {
         bail!("flash plan has no actions to execute");
     }
 
     // ── Mode 2: Dry run — print plan (was: scatter plan) ──────────
-    if dry_run {
-        return print_plan(&plan, json);
+    if cfg.dry_run {
+        return print_plan(&plan, cfg.json);
     }
 
     // ── Mode 3: Execute (was: flash) ────────────────────────────────
