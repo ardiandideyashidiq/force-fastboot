@@ -30,27 +30,6 @@ pub enum Mode {
     DirtyFlash,
 }
 
-/// Slot selection policy.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "kebab-case")]
-pub enum SlotPolicy {
-    /// Choose mode-specific default behavior.
-    #[default]
-    Auto,
-    /// Slot A.
-    A,
-    /// Slot B.
-    B,
-    /// Active slot placeholder (live lookup not performed here).
-    Active,
-    /// Inactive slot placeholder (live lookup not performed here).
-    Inactive,
-    /// Plan both slots where possible.
-    Both,
-    /// Use all slot entries present in the scatter.
-    AllFromScatter,
-}
-
 /// Execution semantics for a planned flash action.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -214,8 +193,6 @@ pub struct FlashPlanOptions {
     pub mode: Mode,
     /// Storage layout selection strategy.
     pub storage: StorageSelect,
-    /// Slot selection policy.
-    pub slot_policy: SlotPolicy,
     /// Explicit partition names to include.
     pub parts: Vec<String>,
     /// Partition groups to include.
@@ -239,7 +216,6 @@ impl Default for FlashPlanOptions {
         Self {
             mode: Mode::DryRun,
             storage: StorageSelect::Auto,
-            slot_policy: SlotPolicy::Auto,
             parts: Vec::new(),
             groups: Vec::new(),
             firmware_dir: None,
@@ -353,10 +329,10 @@ pub struct FlashPlan {
     pub storage_selection: String,
     /// Names of selected layouts.
     pub selected_layouts: Vec<String>,
-    /// Requested slot policy.
-    pub slot_policy_requested: String,
-    /// Effective slot policy applied.
-    pub slot_policy_effective: String,
+    /// Platform chipset name from scatter metadata.
+    pub platform: Option<String>,
+    /// Project codename from scatter metadata.
+    pub project: Option<String>,
     /// Firmware image directory.
     pub firmware_dir: Option<String>,
     /// Package root directory.

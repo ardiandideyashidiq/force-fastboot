@@ -12,7 +12,7 @@ use crate::scatter_parser::safety::{
 };
 use crate::scatter_parser::types::{
     FlashAction, FlashActionExecutionKind, FlashPlan, FlashPlanOptions, FlashPlanSummary,
-    Mode, ScatterFile, ScatterPartition, SkippedPartition, SlotPolicy, StorageSelect,
+    Mode, ScatterFile, ScatterPartition, SkippedPartition, StorageSelect,
     split_base_slot,
 };
 
@@ -36,14 +36,12 @@ pub fn build_flash_plan(scatter: &ScatterFile, options: FlashPlanOptions) -> Fla
         .iter()
         .map(|part| part.name.to_lowercase())
         .collect::<BTreeSet<_>>();
-    let slot_policy_eff = resolve_effective_slot_policy(options.mode, options.slot_policy);
     let explicit_names =
-        expand_requested_names(&options.parts, &available_names, slot_policy_eff);
+        expand_requested_names(&options.parts, &available_names);
 
     let scatter_dir = scatter.path.parent();
     let mut actions = Vec::new();
     let mut skipped = Vec::new();
-    warn_for_placeholder_slot_policy(slot_policy_eff, &mut warnings);
 
     for part in &selected_parts {
         let (selected, selection_reason) =
@@ -54,13 +52,13 @@ pub fn build_flash_plan(scatter: &ScatterFile, options: FlashPlanOptions) -> Fla
             continue;
         }
 
-        if let Some(reason) = skip_reason_for_slot_policy(part, slot_policy_eff) {
-            skipped.push(skipped_partition(part, &reason));
+        if part.slot().is_some() && !part.flashable_by_profile() {
+            // Non-download slot partition; will be synthesized from sibling later
             continue;
         }
 
         let image_source =
-            inherited_image_source_for_slot_b(part, &parts_by_name, slot_policy_eff);
+            inherited_image_source_for_slot_b(part, &parts_by_name);
         let (allowed, reason) =
             mode_allows_partition(part, image_source, options.mode, options.include_preloader);
         if !allowed {
@@ -93,17 +91,11 @@ pub fn build_flash_plan(scatter: &ScatterFile, options: FlashPlanOptions) -> Fla
         &mut warnings,
     );
 
-    synthesize_slot_actions_if_needed(
-        slot_policy_eff,
-        options.mode,
-        &selected_parts,
-        &mut actions,
-    );
+    synthesize_slot_actions_if_needed(&selected_parts, &mut actions);
 
     let incomplete_slots = check_incomplete_slots(
         &selected_parts,
         &actions,
-        slot_policy_eff,
         options.allow_incomplete_slots,
         &mut warnings,
         &mut errors,
@@ -155,8 +147,8 @@ pub fn build_flash_plan(scatter: &ScatterFile, options: FlashPlanOptions) -> Fla
         mode: mode_str(options.mode),
         storage_selection: storage_str(options.storage),
         selected_layouts: selected_layout_names(scatter, options.storage),
-        slot_policy_requested: slot_str(options.slot_policy),
-        slot_policy_effective: slot_str(slot_policy_eff),
+        platform: scatter.platform.clone(),
+        project: scatter.project.clone(),
         firmware_dir: options.firmware_dir.as_ref().map(|p| p.to_string_lossy().into_owned()),
         package_root: options.package_root.as_ref().map(|p| p.to_string_lossy().into_owned()),
         options: json!({
@@ -256,19 +248,6 @@ fn storage_str(storage: StorageSelect) -> String {
     .to_string()
 }
 
-fn slot_str(policy: SlotPolicy) -> String {
-    match policy {
-        SlotPolicy::Auto => "auto",
-        SlotPolicy::A => "a",
-        SlotPolicy::B => "b",
-        SlotPolicy::Active => "active",
-        SlotPolicy::Inactive => "inactive",
-        SlotPolicy::Both => "both",
-        SlotPolicy::AllFromScatter => "all-from-scatter",
-    }
-    .to_string()
-}
-
 // --- Partition selection ---
 
 fn select_partition_for_mode(
@@ -294,20 +273,6 @@ fn select_partition_for_mode(
             (by_part || by_group, reason.to_string())
         }
     }
-}
-
-fn skip_reason_for_slot_policy(
-    part: &ScatterPartition,
-    slot_policy: SlotPolicy,
-) -> Option<String> {
-    if !matches!(slot_policy, SlotPolicy::A | SlotPolicy::B) {
-        return None;
-    }
-    let wanted = if slot_policy == SlotPolicy::A { "a" } else { "b" };
-    part.slot()
-        .as_deref()
-        .filter(|slot| *slot != wanted)
-        .map(|_| format!("slot policy {wanted}"))
 }
 
 fn mode_allows_partition(
@@ -441,10 +406,8 @@ fn checked_image_status(
 fn inherited_image_source_for_slot_b<'a>(
     part: &'a ScatterPartition,
     parts_by_name: &BTreeMap<String, &'a ScatterPartition>,
-    slot_policy: SlotPolicy,
 ) -> &'a ScatterPartition {
-    if slot_policy != SlotPolicy::B
-        || part.slot().as_deref() != Some("b")
+    if part.slot().as_deref() != Some("b")
         || part.flashable_by_profile()
     {
         return part;
@@ -471,30 +434,9 @@ fn inherited_action_reason(
     format!("{base_reason}; inherited from slot {source_slot} image")
 }
 
-const fn resolve_effective_slot_policy(mode: Mode, requested: SlotPolicy) -> SlotPolicy {
-    match requested {
-        SlotPolicy::Auto if matches!(mode, Mode::Selective) => SlotPolicy::AllFromScatter,
-        SlotPolicy::Auto => SlotPolicy::Both,
-        other => other,
-    }
-}
-
-fn warn_for_placeholder_slot_policy(
-    slot_policy: SlotPolicy,
-    warnings: &mut Vec<String>,
-) {
-    if matches!(slot_policy, SlotPolicy::Active | SlotPolicy::Inactive) {
-        warnings.push(format!(
-            "slot policy {:?} needs live device active-slot info; treating as all-from-scatter",
-            slot_str(slot_policy)
-        ));
-    }
-}
-
 fn expand_requested_names(
     requested: &[String],
     available: &BTreeSet<String>,
-    slot_policy: SlotPolicy,
 ) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     for raw in requested {
@@ -507,41 +449,16 @@ fn expand_requested_names(
             out.insert(lname);
             continue;
         }
-        match slot_policy {
-            SlotPolicy::Both | SlotPolicy::Auto => {
-                let mut added = false;
-                for slot in ["a", "b"] {
-                    let candidate = format!("{lname}_{slot}");
-                    if available.contains(&candidate) {
-                        out.insert(candidate);
-                        added = true;
-                    }
-                }
-                if !added {
-                    out.insert(lname);
-                }
+        let mut added = false;
+        for slot in ["a", "b"] {
+            let candidate = format!("{lname}_{slot}");
+            if available.contains(&candidate) {
+                out.insert(candidate);
+                added = true;
             }
-            SlotPolicy::A | SlotPolicy::B | SlotPolicy::Active | SlotPolicy::Inactive => {
-                let slot = if slot_policy == SlotPolicy::B { "b" } else { "a" };
-                let candidate = format!("{lname}_{slot}");
-                out.insert(if available.contains(&candidate) {
-                    candidate
-                } else {
-                    lname
-                });
-            }
-            SlotPolicy::AllFromScatter => {
-                let matched = available
-                    .iter()
-                    .filter(|avail| *avail == &lname || avail.starts_with(&format!("{lname}_")))
-                    .cloned()
-                    .collect::<Vec<_>>();
-                if matched.is_empty() {
-                    out.insert(lname);
-                } else {
-                    out.extend(matched);
-                }
-            }
+        }
+        if !added {
+            out.insert(lname);
         }
     }
     out
@@ -628,14 +545,10 @@ fn warn_for_missing_selective_requests(
 }
 
 fn synthesize_slot_actions_if_needed(
-    slot_policy: SlotPolicy,
-    mode: Mode,
     selected_parts: &[ScatterPartition],
     actions: &mut Vec<FlashAction>,
 ) {
-    if slot_policy == SlotPolicy::Both && mode != Mode::Selective {
-        synthesize_non_download_slot_actions(selected_parts, actions);
-    }
+    synthesize_non_download_slot_actions(selected_parts, actions);
 }
 
 fn synthesize_non_download_slot_actions(
@@ -739,15 +652,11 @@ fn recheck_synthesized_image(
 fn check_incomplete_slots(
     selected_parts: &[ScatterPartition],
     actions: &[FlashAction],
-    slot_policy: SlotPolicy,
     allow_incomplete_slots: bool,
     warnings: &mut Vec<String>,
     errors: &mut Vec<String>,
 ) -> BTreeMap<String, Value> {
     let mut incomplete_slots = BTreeMap::new();
-    if slot_policy != SlotPolicy::Both {
-        return incomplete_slots;
-    }
 
     let mut by_base_available: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     let mut by_base_planned: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
@@ -956,10 +865,30 @@ mod tests {
 
     #[test]
     fn build_flash_plan_should_error_when_both_slots_are_incomplete() {
-        let scatter = synthetic_ab_scatter();
+        let mut layouts = BTreeMap::new();
+        layouts.insert(
+            "EMMC".to_string(),
+            vec![
+                synthetic_part("boot_a", true, true, 0x400000),
+                synthetic_part("boot_b", true, true, 0x400000),
+                synthetic_part("dtbo_a", true, true, 0x100000),
+                synthetic_part("dtbo_b", true, true, 0x100000),
+                userdata_part(),
+            ],
+        );
+        let scatter = ScatterFile {
+            path: std::path::PathBuf::from("test.xml"),
+            format: "xml".to_string(),
+            text_hash: "abc".to_string(),
+            platform: Some("MT6789".to_string()),
+            project: None,
+            general: json!({}),
+            layouts,
+            warnings: Vec::new(),
+            errors: Vec::new(),
+        };
         let plan = build_flash_plan(&scatter, FlashPlanOptions {
             mode: Mode::Selective,
-            slot_policy: SlotPolicy::Both,
             parts: vec!["boot_a".to_string()],
             ..FlashPlanOptions::default()
         });
@@ -976,7 +905,6 @@ mod tests {
         let scatter = synthetic_ab_scatter();
         let plan = build_flash_plan(&scatter, FlashPlanOptions {
             mode: Mode::DryRun,
-            slot_policy: SlotPolicy::Both,
             ..FlashPlanOptions::default()
         });
         let b_actions: Vec<_> = plan

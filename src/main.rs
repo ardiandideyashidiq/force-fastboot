@@ -46,6 +46,10 @@ enum ScatterAction {
         #[arg(long)]
         json: bool,
 
+        /// Enable verbose logging (trace level)
+        #[arg(short, long)]
+        verbose: bool,
+
         /// Flash planning mode
         #[arg(long, default_value = "dry-run")]
         mode: String,
@@ -53,10 +57,6 @@ enum ScatterAction {
         /// Storage layout selection
         #[arg(long, default_value = "auto")]
         storage: String,
-
-        /// Slot policy
-        #[arg(long, default_value = "auto")]
-        slot: String,
 
         /// Explicit partition names to include (repeatable)
         #[arg(long)]
@@ -111,19 +111,6 @@ fn parse_storage(s: &str) -> Result<sp::StorageSelect> {
     }
 }
 
-fn parse_slot(s: &str) -> Result<sp::SlotPolicy> {
-    match s.to_lowercase().as_str() {
-        "auto" => Ok(sp::SlotPolicy::Auto),
-        "a" => Ok(sp::SlotPolicy::A),
-        "b" => Ok(sp::SlotPolicy::B),
-        "active" => Ok(sp::SlotPolicy::Active),
-        "inactive" => Ok(sp::SlotPolicy::Inactive),
-        "both" => Ok(sp::SlotPolicy::Both),
-        "all-from-scatter" | "all_from_scatter" => Ok(sp::SlotPolicy::AllFromScatter),
-        _ => anyhow::bail!("invalid slot policy '{s}'"),
-    }
-}
-
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
@@ -145,9 +132,9 @@ fn main() -> Result<()> {
                 ScatterAction::Plan {
                     scatter,
                     json,
+                    verbose,
                     mode,
                     storage,
-                    slot,
                     part,
                     group,
                     firmware_dir,
@@ -160,9 +147,9 @@ fn main() -> Result<()> {
                     pawflash::cli::scatter::run_plan(
                         &scatter,
                         json,
+                        verbose,
                         parse_mode(&mode)?,
                         parse_storage(&storage)?,
-                        parse_slot(&slot)?,
                         &part,
                         &group,
                         firmware_dir,

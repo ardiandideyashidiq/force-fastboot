@@ -1,7 +1,7 @@
 use nusb::MaybeFuture;
 use std::fs;
 use std::path::Path;
-use tracing::{debug, trace, warn};
+use tracing::{debug, info, trace, warn};
 
 /// USB interface class/subclass/protocol triplet identifying Android fastboot.
 const FASTBOOT_IFACE_CLASS: u8 = 0xff;
@@ -17,8 +17,7 @@ pub fn list_fastboot_devices() {
     for dev in devices.filter(is_fastboot_device) {
         let serial = dev.serial_number().unwrap_or("?").to_string();
         let vidpid = format!("{:04x}:{:04x}", dev.vendor_id(), dev.product_id());
-        debug!(serial, vidpid, "found fastboot device");
-        println!("{serial:22}\tfastboot\t{vidpid}");
+        info!(serial, vidpid, "fastboot device");
     }
 }
 

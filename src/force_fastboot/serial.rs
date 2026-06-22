@@ -1,7 +1,6 @@
 use super::error::Error;
 use super::error::Result;
 use super::fastboot::in_fastboot_mode;
-use indicatif::ProgressBar;
 use std::collections::HashSet;
 use std::thread::sleep;
 use std::time::Duration;
@@ -77,8 +76,6 @@ pub fn open_serial(port: &str) -> Result<Box<dyn serialport::SerialPort>> {
 /// a new candidate port appears. When `check_fastboot` is `true`, also returns
 /// `None` if fastboot mode is detected before a port is found.
 ///
-/// `pb` is used for progress-bar message updates.
-///
 /// # Errors
 ///
 /// Propagates [`Error::OpenSerialPort`] if a detected preloader port cannot
@@ -86,7 +83,6 @@ pub fn open_serial(port: &str) -> Result<Box<dyn serialport::SerialPort>> {
 /// to [`open_serial`]).
 pub fn wait_for_preloader(
     check_fastboot: bool,
-    pb: &ProgressBar,
 ) -> Result<Option<String>> {
     info!(check_fastboot, "waiting for preloader serial port");
     let mut old = serial_ports();
@@ -113,7 +109,6 @@ pub fn wait_for_preloader(
             old = new;
         }
 
-        pb.set_message("Waiting for preloader...");
         sleep(POLL_INTERVAL);
     }
 }

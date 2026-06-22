@@ -1,6 +1,8 @@
 use anyhow::{Context, Result};
 use std::path::PathBuf;
+use tracing::{error, info, warn};
 
+use crate::cli::init_stderr_logging;
 use crate::scatter_parser as sp;
 
 /// Parse and print scatter metadata.
@@ -60,9 +62,9 @@ pub fn run_parse(path: &PathBuf, full_json: bool) -> Result<()> {
 pub fn run_plan(
     path: &PathBuf,
     json: bool,
+    verbose: bool,
     mode: sp::Mode,
     storage: sp::StorageSelect,
-    slot: sp::SlotPolicy,
     parts: &[String],
     groups: &[String],
     firmware_dir: Option<PathBuf>,
@@ -72,13 +74,17 @@ pub fn run_plan(
     include_preloader: bool,
     allow_incomplete_slots: bool,
 ) -> Result<()> {
+    let level = if verbose { "trace" } else { "info" };
+    init_stderr_logging(level);
+
+    info!(?path, "parsing scatter file");
     let scatter = sp::parse_scatter(path)
         .with_context(|| format!("failed to parse {}", path.display()))?;
 
+    info!("building flash plan");
     let options = sp::FlashPlanOptions {
         mode,
         storage,
-        slot_policy: slot,
         parts: parts.to_vec(),
         groups: groups.to_vec(),
         firmware_dir,
@@ -90,44 +96,46 @@ pub fn run_plan(
     };
 
     let plan = sp::build_flash_plan(&scatter, options);
+    info!(actions = plan.actions.len(), skipped = plan.skipped.len(), "plan built");
 
     if json {
         let output = serde_json::to_string_pretty(&plan)?;
         println!("{output}");
     } else {
-        println!("Mode:           {}", plan.mode);
-        println!("Storage:        {}", plan.storage_selection);
-        println!("Layouts:        {}", plan.selected_layouts.join(", "));
-        println!("Slot policy:    {} (effective: {})", plan.slot_policy_requested, plan.slot_policy_effective);
-        println!("Flash actions:  {}", plan.summary.flash_count);
-        println!("Skipped:        {}", plan.summary.skipped_count);
+        info!(
+            mode = plan.mode,
+            layouts = %plan.selected_layouts.join(","),
+            platform = plan.platform.as_deref().unwrap_or("(unknown)"),
+            project = plan.project.as_deref().unwrap_or("(unknown)"),
+            flash_actions = plan.summary.flash_count,
+            skipped = plan.summary.skipped_count,
+            "plan summary",
+        );
 
         for action in &plan.actions {
             let img = action.image_resolved_path().unwrap_or("(none)");
-            println!(
-                "  {} {} -> {} ({})",
-                action.action, action.partition, img, action.reason
+            info!(
+                action = action.action,
+                partition = action.partition,
+                image = img,
+                reason = action.reason,
+                "flash action",
             );
         }
 
-        if !plan.skipped.is_empty() {
-            println!("\nSkipped:");
-            for s in &plan.skipped {
-                println!("  {}: {}", s.partition, s.reason);
-            }
+        for s in &plan.skipped {
+            info!(
+                partition = s.partition,
+                reason = s.reason,
+                "skipped partition",
+            );
         }
 
-        if !plan.warnings.is_empty() {
-            println!("\nWarnings ({}):", plan.warnings.len());
-            for w in &plan.warnings {
-                println!("  - {w}");
-            }
+        for w in &plan.warnings {
+            warn!("{w}");
         }
-        if !plan.errors.is_empty() {
-            eprintln!("\nErrors ({}):", plan.errors.len());
-            for e in &plan.errors {
-                eprintln!("  - {e}");
-            }
+        for e in &plan.errors {
+            error!("{e}");
         }
     }
     Ok(())
