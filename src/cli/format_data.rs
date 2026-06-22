@@ -2,7 +2,6 @@ use anyhow::Result;
 use tracing::info;
 
 use crate::cli::init_stderr_logging;
-use crate::flash::executor::FormatStatus;
 use crate::flash::FlashExecutor;
 use crate::format::generator;
 
@@ -20,38 +19,11 @@ pub async fn run(verbose: bool, fs_options: Vec<String>) -> Result<()> {
 
     let result = executor.format_data(fs_options).await;
 
-    let mut wiped = 0usize;
-    let mut erased_only = 0usize;
-    let mut skipped = 0usize;
-    let mut failed = 0usize;
-
-    println!();
-    println!("=== Format-Data Results ===");
-    for outcome in &result.outcomes {
-        match &outcome.status {
-            FormatStatus::Wiped => {
-                println!("  {}: WIPED ✓", outcome.partition);
-                wiped += 1;
-            }
-            FormatStatus::ErasedOnly(fs) => {
-                println!(
-                    "  {}: ERASED (filesystem '{}' not supported, no format)",
-                    outcome.partition, fs
-                );
-                erased_only += 1;
-            }
-            FormatStatus::Skipped(reason) => {
-                println!("  {}: SKIPPED ({})", outcome.partition, reason);
-                skipped += 1;
-            }
-            FormatStatus::Failed(e) => {
-                println!("  {}: FAILED — {e}", outcome.partition);
-                failed += 1;
-            }
-        }
-    }
-    println!();
-    println!("  Summary: {wiped} wiped, {erased_only} erased only, {skipped} skipped, {failed} failed");
+    let wiped = result.outcomes.iter().filter(|o| matches!(o.status, crate::flash::executor::FormatStatus::Wiped)).count();
+    let failed = result.outcomes.iter().filter(|o| matches!(o.status, crate::flash::executor::FormatStatus::Failed(_))).count();
+    let erased_only = result.outcomes.iter().filter(|o| matches!(o.status, crate::flash::executor::FormatStatus::ErasedOnly(_))).count();
+    let skipped = result.outcomes.iter().filter(|o| matches!(o.status, crate::flash::executor::FormatStatus::Skipped(_))).count();
+    info!(wiped, erased_only, skipped, failed, "format-data done");
 
     Ok(())
 }
