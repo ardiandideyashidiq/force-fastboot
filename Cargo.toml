@@ -4,9 +4,13 @@ version = "0.1.0"
 edition = "2024"
 
 [lints.rust]
-unsafe_code = "deny"
 unused = "deny"
 
 [dependencies]
+anyhow = "1"
+serialport = "4.9"
+nusb = "0.2"
+indicatif = "0.18"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
