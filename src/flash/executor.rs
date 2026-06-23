@@ -42,12 +42,23 @@ pub struct FlashExecutor {
 #[allow(clippy::missing_errors_doc)]
 impl FlashExecutor {
     /// Connect to the first available fastboot device and query its variables.
+    /// If more than one device is found, emits a warning suggesting the user
+    /// disconnect extras to avoid targeting the wrong device.
     pub async fn connect() -> Result<Self> {
-        let mut devices = fastboot_protocol::nusb::devices()
+        let all: Vec<_> = fastboot_protocol::nusb::devices()
             .await
-            .map_err(|_| FlashError::NoDevice)?;
+            .map_err(|_| FlashError::NoDevice)?
+            .collect();
 
-        let info = devices.next().ok_or_else(|| {
+        if all.len() > 1 {
+            warn!(
+                count = all.len(),
+                "multiple fastboot devices found – using the first one; \
+                 disconnect extras to avoid targeting the wrong device"
+            );
+        }
+
+        let info = all.into_iter().next().ok_or_else(|| {
             #[cfg(target_os = "linux")]
             crate::flash::diagnostics::diagnose_fastboot_sysfs();
             FlashError::NoDevice
@@ -297,7 +308,9 @@ impl FlashExecutor {
     /// errors that are harmless.
     pub async fn reboot_and_wait(mut self, target: BootTarget) -> Result<Self> {
         debug!(?target, "rebooting device and waiting for reconnect");
-        let _ = self.fb.reboot_to(target.as_str()).await;
+        if let Err(e) = self.fb.reboot_to(target.as_str()).await {
+            warn!(?target, error = %e, "reboot command error (device may have disconnected)");
+        }
         drop(self);
         Self::wait_for_device(Duration::from_secs(120)).await
     }
@@ -305,6 +318,11 @@ impl FlashExecutor {
     /// Flash the vendored empty vbmeta image to both slots.
     /// This disables dm-verity and AVB verification (flags=3).
     /// Returns the device response from the last flash.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `EMPTY_VBMETA` exceeds 4 GiB (impossible for a 512-byte image).
+    #[allow(clippy::missing_panics_doc)]
     pub async fn flash_empty_vbmeta(&mut self) -> Result<String> {
         let data = crate::flash::vbmeta::EMPTY_VBMETA;
         debug!("flashing empty vbmeta to both slots");
@@ -312,7 +330,10 @@ impl FlashExecutor {
         for slot in &["a", "b"] {
             let partition = format!("vbmeta_{slot}");
             info!(%partition, "flashing empty vbmeta");
-            let mut sender = self.fb.download(u32::try_from(data.len()).unwrap_or(u32::MAX)).await?;
+            let mut sender = self.fb.download(
+                u32::try_from(data.len())
+                    .expect("EMPTY_VBMETA is 512 bytes, always fits in u32"),
+            ).await?;
             sender.extend_from_slice(data).await?;
             sender.finish().await?;
             last_resp = self.fb.flash(&partition).await?;
@@ -328,9 +349,7 @@ impl FlashExecutor {
         image_path: &Path,
     ) -> Result<String> {
         debug!(%partition, image_path = %image_path.display(), "flash_raw_image entry");
-        let max_download = self.fb.get_var("max-download-size").await.ok()
-            .and_then(|s| fastboot_protocol::protocol::parse_u32(&s).ok())
-            .unwrap_or(256 * 1024 * 1024);
+        let max_download = parse_max_download(&mut self.fb).await?;
 
         self.flash_image_to_partition(partition, image_path, max_download, None).await
     }
@@ -510,6 +529,22 @@ impl FlashExecutor {
         debug!(%partition, chunks = chunk_index, response = last_resp, "chunked flash complete");
         Ok(last_resp)
     }
+}
+
+/// Query `max-download-size` from the device and validate it is
+/// reasonable.  Returns an error if the value is present but below 1 MiB.
+pub(crate) async fn parse_max_download(fb: &mut NusbFastBoot) -> Result<u32> {
+    let raw = fb.get_var("max-download-size").await.ok();
+    let val = raw.as_deref()
+        .and_then(|s| fastboot_protocol::protocol::parse_u32(s).ok())
+        .unwrap_or(256 * 1024 * 1024);
+    if val < 1024 * 1024 {
+        return Err(FlashError::ActionFailed {
+            partition: "(global)".into(),
+            reason: format!("device max-download-size ({val}) is unreasonably small"),
+        });
+    }
+    Ok(val)
 }
 
 

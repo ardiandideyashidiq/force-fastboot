@@ -84,6 +84,7 @@ pub async fn run(
                 && group.is_empty()
                 && !json
             {
+                warn!("no --part/--group specified; interactive mode uses --mode dirty-flash (your --mode {mode:?} is ignored)");
                 return crate::cli::interactive::run(&scatter_path, exclude, clean).await;
             }
 

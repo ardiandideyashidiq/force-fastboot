@@ -59,9 +59,7 @@ pub fn canonical_name(name: &str) -> String {
     if base.starts_with("loader_ext") {
         return "loader_ext".to_string();
     }
-    if base == "tee_a" || base == "tee_b" {
-        return "tee".to_string();
-    }
+    // NOTE: _a/_b slot suffixes are already stripped by split_base_slot above.
     if is_numbered_vbmeta(&base) {
         if base.contains("system") {
             return "vbmeta_system".to_string();

@@ -1,7 +1,7 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use tracing::debug;
 
-use crate::flash::FlashExecutor;
+use crate::flash::executor::FlashExecutor;
 use crate::output;
 
 /// Flash the vendored empty vbmeta image to both slots with AVB flags=3.
@@ -19,13 +19,23 @@ pub async fn run() -> Result<()> {
     )
     .await?;
 
+    // vbmeta partitions are only accessible in bootloader mode.
+    let is_userspace = executor.get_var("is-userspace").await.unwrap_or_default();
+    if is_userspace == "yes" || is_userspace == "true" {
+        anyhow::bail!(
+            "device is in fastbootd mode; vbmeta can only be flashed in bootloader mode.\n\
+             Run 'pawflash device reboot bootloader' first."
+        );
+    }
+
     output::spinner::run_with_spinner(
         "Disabling vbmeta verification...",
         async {
             executor.flash_empty_vbmeta().await
         },
     )
-    .await?;
+    .await
+    .context("failed to flash empty vbmeta")?;
 
     debug!("disable-vbmeta completed");
     Ok(())

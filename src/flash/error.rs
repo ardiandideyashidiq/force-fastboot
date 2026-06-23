@@ -38,6 +38,9 @@ pub enum FlashError {
 
     #[error("failed to split sparse image for download")]
     SparseSplitFailed,
+
+    #[error("sparse image truncated: read {read} of {expected} bytes")]
+    SparseTruncated { read: usize, expected: usize },
 }
 
 pub type Result<T> = std::result::Result<T, FlashError>;

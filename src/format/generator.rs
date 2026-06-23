@@ -2,7 +2,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use tempfile::TempDir;
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::flash::error::FlashError;
 use crate::flash::error::Result;
@@ -147,7 +147,13 @@ fn apply_tool_env(cmd: &mut tokio::process::Command, tools_dir: &Path) {
             let new_path = if let Some(existing) = std::env::var_os("LD_LIBRARY_PATH") {
                 let mut paths: Vec<_> = std::env::split_paths(&existing).collect();
                 paths.insert(0, lib_dir);
-                std::env::join_paths(paths).unwrap_or(existing)
+                match std::env::join_paths(paths) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        warn!(%e, "failed to join LD_LIBRARY_PATH with tool dir");
+                        existing
+                    }
+                }
             } else {
                 lib_dir.into_os_string()
             };
@@ -166,6 +172,12 @@ async fn generate_ext4(
 ) -> Result<()> {
     const BLOCK_SIZE: u64 = 4096;
     let blocks = part_size / BLOCK_SIZE;
+
+    if blocks < 1 {
+        return Err(FlashError::GeneratorFailed {
+            reason: format!("partition size {part_size} is smaller than minimum block size {BLOCK_SIZE}"),
+        });
+    }
 
     debug!(
         part_size, blocks, erase_blk_size, logical_blk_size, fs_options,

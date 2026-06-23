@@ -290,7 +290,11 @@ fn normalize_components(path: &Path) -> PathBuf {
     for component in path.components() {
         match component {
             Component::ParentDir => {
-                out.pop();
+                if !out.pop() {
+                    // Retain `..` above root for relative paths instead of
+                    // silently dropping it.
+                    out.push("..");
+                }
             }
             Component::CurDir => {}
             other => out.push(other.as_os_str()),

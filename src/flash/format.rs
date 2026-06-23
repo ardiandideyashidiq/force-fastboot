@@ -1,6 +1,5 @@
 use std::path::Path;
 
-use fastboot_protocol::protocol;
 use tracing::{debug, error, info, warn};
 
 use crate::flash::error::FlashError;
@@ -34,12 +33,8 @@ impl FlashExecutor {
             }
         };
 
-        let max_download = self
-            .fb
-            .get_var("max-download-size")
+        let max_download = crate::flash::executor::parse_max_download(&mut self.fb)
             .await
-            .ok()
-            .and_then(|s| protocol::parse_u32(&s).ok())
             .unwrap_or(256 * 1024 * 1024);
 
         let erase_blk = self
@@ -207,7 +202,8 @@ impl FlashExecutor {
 /// Parse a bootloader-reported numeric variable as hex.
 /// Some bootloaders omit the `0x` prefix; AOSP always treats the value as hex.
 fn parse_getvar_hex_u64(s: &str) -> Option<u64> {
-    let s = s.trim().strip_prefix("0x").unwrap_or(s.trim());
+    let s = s.trim();
+    let s = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")).unwrap_or(s);
     if s.is_empty() {
         return None;
     }

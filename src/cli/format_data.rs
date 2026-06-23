@@ -1,7 +1,8 @@
 use anyhow::Result;
-use tracing::debug;
+use tracing::{debug, warn};
 
-use crate::flash::FlashExecutor;
+use crate::flash::executor::FlashExecutor;
+use crate::flash::results::FormatStatus;
 use crate::format::generator;
 use crate::output;
 
@@ -21,13 +22,30 @@ pub async fn run(fs_options: Vec<String>) -> Result<()> {
     )
     .await?;
 
-    output::spinner::run_with_spinner(
-        "Formatting userdata, cache, metadata...",
-        async {
-            executor.format_data(fs_options).await;
-        },
-    )
-    .await;
+    let result = executor.format_data(fs_options).await;
+
+    for outcome in &result.outcomes {
+        match &outcome.status {
+            FormatStatus::Wiped => {
+                println!("  {} {}", output::theme::ok("OKAY"), outcome.partition);
+            }
+            FormatStatus::ErasedOnly(fs) => {
+                println!("  {} {} (erased, unrecognised fs: {fs})", output::theme::warn("WARN"), outcome.partition);
+            }
+            FormatStatus::Skipped(reason) => {
+                println!("  {} {} ({reason})", output::theme::dim("SKIP"), outcome.partition);
+            }
+            FormatStatus::Failed(e) => {
+                warn!(partition = %outcome.partition, error = %e, "format failed");
+                eprintln!("  {} {} ({e})", output::theme::error("FAIL"), outcome.partition);
+            }
+        }
+    }
+
+    let failed = result.outcomes.iter().filter(|o| matches!(o.status, FormatStatus::Failed(_))).count();
+    if failed > 0 {
+        anyhow::bail!("format-data completed with {failed} failure(s)");
+    }
 
     debug!("format-data done");
 

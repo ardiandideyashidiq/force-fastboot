@@ -11,6 +11,9 @@ pub enum Error {
 
     #[error("serial port enumeration failed: {0}")]
     PortEnumeration(#[from] tokio_serial::Error),
+
+    #[error("timed out waiting for preloader serial port")]
+    PreloaderTimeout,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

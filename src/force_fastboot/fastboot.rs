@@ -52,12 +52,6 @@ async fn nusb_fastboot_mode() -> bool {
             debug!(vid, pid, "found fastboot interface via nusb");
             return true;
         }
-
-        let product = dev.product_string().unwrap_or("").to_ascii_lowercase();
-        if product.contains("fastboot") || product.contains("bootloader") {
-            debug!(vid, pid, product, "found fastboot device via product string");
-            return true;
-        }
     }
 
     false

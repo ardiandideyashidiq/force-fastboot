@@ -18,9 +18,30 @@ use tracing::{debug, info};
 
 use crate::flash::error::{FlashError, Result};
 
+/// Helper: call `read_exact_padded`, then raise `SparseTruncated` if fewer
+/// bytes were read from the file than requested.
+async fn read_exact_padded_or_truncate(
+    file: &mut tokio::fs::File,
+    buf: &mut [u8],
+    chunk_expected: usize,
+) -> Result<()> {
+    let file_bytes = read_exact_padded(file, buf).await?;
+    if file_bytes < buf.len() {
+        return Err(FlashError::SparseTruncated {
+            read: chunk_expected - (buf.len() - file_bytes),
+            expected: chunk_expected,
+        });
+    }
+    Ok(())
+}
+
 /// Read exactly `buf.len()` bytes from `file`, zero-filling any remainder
 /// if EOF is reached early.  Required because sparse chunk data must always
 /// be block-aligned even when the underlying file is shorter.
+///
+/// Returns the number of bytes actually read from the file (before any
+/// zero-fill padding).  The caller should check the return value against
+/// `buf.len()` and raise `FlashError::SparseTruncated` on mismatch.
 async fn read_exact_padded(
     file: &mut tokio::fs::File,
     buf: &mut [u8],
@@ -38,7 +59,7 @@ async fn read_exact_padded(
             Err(e) => return Err(e),
         }
     }
-    Ok(total)
+    Ok(offset)
 }
 
 /// Check whether a file is an Android sparse image by reading the 4-byte
@@ -146,7 +167,7 @@ pub(crate) async fn flash_sparse_image(
                 let mut buf = vec![0u8; 1024 * 1024];
                 while remaining > 0 {
                     let to_read = buf.len().min(remaining);
-                    read_exact_padded(&mut file, &mut buf[..to_read]).await?;
+                    read_exact_padded_or_truncate(&mut file, &mut buf[..to_read], chunk.size).await?;
                     sender.extend_from_slice(&buf[..to_read]).await?;
                     if let Some(pb) = progress_bar {
                         pb.inc(to_read as u64);
@@ -223,7 +244,7 @@ pub(crate) async fn flash_sparse_wrapped(
                 let mut buf = vec![0u8; 1024 * 1024];
                 while remaining > 0 {
                     let to_read = buf.len().min(remaining);
-                    read_exact_padded(&mut file, &mut buf[..to_read]).await?;
+                    read_exact_padded_or_truncate(&mut file, &mut buf[..to_read], chunk.size).await?;
                     sender.extend_from_slice(&buf[..to_read]).await?;
                     remaining = remaining.saturating_sub(to_read);
                 }
