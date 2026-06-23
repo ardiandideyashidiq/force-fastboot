@@ -37,7 +37,14 @@ cargo test <test_name>  # e.g. cargo test parse_int_should_accept_decimal
 - **Modular code required.** Keep files focused and under ~400 lines. If a file grows beyond that, split it into a directory module with submodules — each submodule gets one clear responsibility.
 - No `pub(crate)` helper functions living in type-definition files. Extract shared helpers into their own module (e.g. `scatter_parser/util.rs`).
 - When splitting, use `sort` in the directory listing above to show submodules in order.
-- **Structured logging required.** Always use `tracing` with fields (`info!(field = value, "msg")`), never `println!`/`eprintln!` or format strings in log calls. Pass values as fields, not in the message string.
+- **Structured logging required.** Always use `tracing` with fields (`info!(field = value, "msg")`), never format strings in log calls. Pass values as fields, not in the message string.
+- **User-facing output.** Never use raw `println!`/`eprintln!`. Use `output::status::*` helpers:
+  - `data(...)` — command output (tables, JSON, device info) to stdout
+  - `ok(label, detail)` / `warn(label, detail)` / `fail(label, detail)` — status lines via indicatif/tracing
+  - `dim(msg)` — neutral status message
+  - `heading(msg)` / `blank()` — section structure
+  - `stderr(msg)` — error blocks to stderr
+  - All helpers also emit `tracing` when `-v` is active.
 
 ## Notable config
 

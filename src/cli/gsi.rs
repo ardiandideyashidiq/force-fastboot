@@ -27,9 +27,12 @@ pub async fn run(image: &Path) -> Result<()> {
 
     info!(image = %image.display(), "starting GSI flash");
 
-    let report = |event: GsiEvent| log_gsi_event(&event);
+    let mut gsi_progress = output::gsi_progress::GsiProgress::new();
+    let report = |event: GsiEvent| gsi_progress.report(&event);
 
     let outcome = crate::gsi::execute_gsi_flash(executor, &image, report).await?;
+
+    gsi_progress.finish();
 
     info!(
         flash_count = outcome.summary.flash_count,
@@ -38,24 +41,4 @@ pub async fn run(image: &Path) -> Result<()> {
     );
 
     Ok(())
-}
-
-fn log_gsi_event(event: &GsiEvent) {
-    match event {
-        GsiEvent::Step(step) => info!("[gsi] {}", step.as_str()),
-        GsiEvent::ModeDetected(mode) => info!("[gsi] detected mode: {}", mode.as_str()),
-        GsiEvent::ModeReady(mode) => info!("[gsi] ready in mode: {}", mode.as_str()),
-        GsiEvent::ResolvedPartition { base, partition, size_bytes } => {
-            info!("[gsi] resolved {base} -> {partition} ({size_bytes} bytes)");
-        }
-        GsiEvent::Flashing { partition, size_bytes } => {
-            info!("[gsi] flashing {partition} ({size_bytes} bytes)");
-        }
-        GsiEvent::Wiping { partition } => {
-            info!("[gsi] wiping {partition}");
-        }
-        GsiEvent::PartitionSkipped { partition, reason } => {
-            info!("[gsi] skipped {partition}: {reason}");
-        }
-    }
 }

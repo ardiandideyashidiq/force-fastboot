@@ -9,33 +9,33 @@ use crate::output::prompts;
 use crate::scatter_parser as sp;
 
 fn show_plan(_parsed: &sp::ScatterFile, plan: &sp::FlashPlan) -> Result<bool> {
-    println!("{}", output::theme::heading("Interactive Flash Plan"));
-    println!();
-    println!("{}", output::tables::plan_summary(plan));
-    println!();
+    output::status::heading("Interactive Flash Plan");
+    output::status::blank();
+    output::status::data(output::tables::plan_summary(plan));
+    output::status::blank();
     if !plan.actions.is_empty() {
-        println!("{}", output::tables::plan_actions(plan));
+        output::status::data(output::tables::plan_actions(plan));
     }
     if let Some(s) = output::tables::plan_skipped(plan) {
-        println!();
-        println!("{}", output::theme::dim("Skipped partitions:"));
-        println!("{s}");
+        output::status::blank();
+        output::status::data(output::theme::dim("Skipped partitions:"));
+        output::status::data(s);
     }
     if let Some(w) = output::tables::plan_warnings(plan) {
-        println!();
-        println!("{}", output::theme::warn("Warnings:"));
-        println!("{w}");
+        output::status::blank();
+        output::status::data(output::theme::warn("Warnings:"));
+        output::status::data(w);
     }
 
     let has_errors = !plan.errors.is_empty();
     if has_errors {
-        println!();
-        println!("{}", output::theme::error("Errors:"));
-        println!("{}", output::tables::plan_errors(plan).unwrap_or_default());
+        output::status::blank();
+        output::status::data(output::theme::error("Errors:"));
+        output::status::stderr(output::tables::plan_errors(plan).unwrap_or_default());
     }
 
     if has_errors && !prompts::confirm_yes("Ignore errors and proceed anyway?")? {
-        println!("  {}", output::theme::dim("Aborted."));
+        output::status::dim("  Aborted.");
         return Ok(false);
     }
     Ok(true)
@@ -96,11 +96,11 @@ pub async fn run(scatter_path: &Path, exclude: &[String], clean: bool) -> Result
         return Ok(());
     }
     if plan.actions.is_empty() {
-        println!("  {}", output::theme::dim("Nothing to flash."));
+        output::status::dim("  Nothing to flash.");
         return Ok(());
     }
     if !prompts::confirm_no("Proceed with flash?")? {
-        println!("  {}", output::theme::dim("Aborted."));
+        output::status::dim("  Aborted.");
         return Ok(());
     }
 
@@ -115,8 +115,8 @@ pub async fn run(scatter_path: &Path, exclude: &[String], clean: bool) -> Result
     let result = executor.execute_plan(&plan, false, Some(&pb)).await;
     pb.finish_and_clear();
 
-    println!();
-    println!("{}", output::tables::flash_result(&result));
+    output::status::blank();
+    output::status::data(output::tables::flash_result(&result));
 
     if result.failed > 0 {
         return Ok(());

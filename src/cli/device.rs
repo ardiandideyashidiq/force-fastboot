@@ -19,7 +19,7 @@ pub async fn run(action: DeviceAction) -> Result<()> {
     match action {
         DeviceAction::Info => {
             let vars = executor.get_all_vars().await?;
-            println!("{}", output::tables::device_info(&vars));
+            output::status::data(output::tables::device_info(&vars));
         }
         DeviceAction::Reboot { target } => {
             info!(%target, "rebooting device");
@@ -34,22 +34,22 @@ pub async fn run(action: DeviceAction) -> Result<()> {
         }
         DeviceAction::Lock => {
             let resp = executor.flashing_lock().await?;
-            println!("  {} ({})", output::theme::ok("OKAY"), resp);
+            output::status::ok("OKAY", resp);
         }
         DeviceAction::Unlock => {
             let resp = executor.flashing_unlock().await?;
-            println!("  {} ({})", output::theme::ok("OKAY"), resp);
+            output::status::ok("OKAY", resp);
         }
         DeviceAction::SetActive { slot } => {
             if slot != "a" && slot != "b" {
                 anyhow::bail!("invalid slot '{slot}': expected 'a' or 'b'");
             }
             let resp = executor.set_active_slot(&slot).await?;
-            println!("  {} {} ({})", output::theme::ok("OKAY"), slot, resp);
+            output::status::ok(format!("{slot} OKAY"), resp);
         }
         DeviceAction::GetVar { var } => {
             match executor.get_var(&var).await {
-                Ok(value) => println!("{var}: {value}"),
+                Ok(value) => output::status::data(format!("{var}: {value}")),
                 Err(e) => anyhow::bail!("failed to get '{var}': {e}"),
             }
         }

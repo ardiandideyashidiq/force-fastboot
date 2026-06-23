@@ -27,17 +27,17 @@ pub async fn run(fs_options: Vec<String>) -> Result<()> {
     for outcome in &result.outcomes {
         match &outcome.status {
             FormatStatus::Wiped => {
-                println!("  {} {}", output::theme::ok("OKAY"), outcome.partition);
+                output::status::ok("OKAY", &outcome.partition);
             }
             FormatStatus::ErasedOnly(fs) => {
-                println!("  {} {} (erased, unrecognised fs: {fs})", output::theme::warn("WARN"), outcome.partition);
+                output::status::warn("WARN", format!("{} (erased, unrecognised fs: {fs})", outcome.partition));
             }
             FormatStatus::Skipped(reason) => {
-                println!("  {} {} ({reason})", output::theme::dim("SKIP"), outcome.partition);
+                output::status::dim(format!("  SKIP {} ({reason})", outcome.partition));
             }
             FormatStatus::Failed(e) => {
                 warn!(partition = %outcome.partition, error = %e, "format failed");
-                eprintln!("  {} {} ({e})", output::theme::error("FAIL"), outcome.partition);
+                output::status::fail("FAIL", format!("{} ({e})", outcome.partition));
             }
         }
     }

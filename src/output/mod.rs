@@ -1,5 +1,7 @@
+pub mod gsi_progress;
 pub mod prompts;
 pub mod spinner;
+pub mod status;
 pub mod tables;
 pub mod theme;
 

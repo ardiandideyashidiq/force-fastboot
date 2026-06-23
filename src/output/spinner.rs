@@ -49,6 +49,16 @@ pub fn progress_bar(len: u64) -> ProgressBar {
     pb
 }
 
+/// Print a line above any active progress bars. If no progress bar is active,
+/// falls back to writing to stderr via the underlying `MultiProgress`.
+///
+/// # Errors
+///
+/// Returns an error if the underlying `MultiProgress` write fails.
+pub fn print(msg: &str) -> std::io::Result<()> {
+    multi().println(msg)
+}
+
 /// Run an async future while showing a spinner. Clears on completion.
 pub async fn run_with_spinner<F, T>(msg: &str, fut: F) -> T
 where

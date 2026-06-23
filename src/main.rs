@@ -3,7 +3,7 @@ use std::process;
 use clap::{CommandFactory, Parser};
 use pawflash::cli::args::{Cli, Commands};
 use pawflash::cli::init_logging;
-use colored::Colorize as _;
+use tracing::error;
 
 #[tokio::main]
 async fn main() {
@@ -12,7 +12,7 @@ async fn main() {
     init_logging(cli.verbose);
 
     if let Err(err) = run(cli).await {
-        eprintln!("{} {err:#}", "error:".red().bold());
+        error!("{err:#}");
         process::exit(1);
     }
 }

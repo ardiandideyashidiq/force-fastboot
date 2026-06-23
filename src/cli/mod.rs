@@ -22,7 +22,7 @@ pub fn init_logging(verbosity: u8) {
     crate::output::set_verbosity(verbosity);
 
     let level_str = match verbosity {
-        0 => "off",
+        0 => "error",
         1 => "info",
         2 => "debug",
         _ => "trace",

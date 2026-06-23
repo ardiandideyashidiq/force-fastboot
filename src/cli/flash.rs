@@ -34,7 +34,7 @@ fn print_flash_help() -> Result<()> {
     let mut cmd = Cli::command();
     if let Some(flash) = cmd.find_subcommand_mut("flash") {
         flash.print_help()?;
-        println!();
+        output::status::blank();
     }
     Ok(())
 }
@@ -172,7 +172,7 @@ async fn run_scatter(cfg: &ScatterConfig<'_>) -> Result<()> {
 
     // Show errors early (before bail! so user sees them)
     if !plan.errors.is_empty() {
-        eprintln!("{}", output::tables::plan_errors(&plan).unwrap_or_default());
+        output::status::stderr(output::tables::plan_errors(&plan).unwrap_or_default());
         if !cfg.dry_run {
             bail!("flash plan errors prevent execution (use --dry-run to see full report)");
         }
@@ -210,7 +210,7 @@ async fn run_scatter(cfg: &ScatterConfig<'_>) -> Result<()> {
         "flash execution summary",
     );
 
-    eprintln!("{}", output::tables::flash_result(&result));
+    output::status::stderr(output::tables::flash_result(&result));
 
     if result.failed > 0 {
         bail!(
@@ -242,18 +242,18 @@ fn show_scatter_metadata(path: &Path, full_json: bool) -> Result<()> {
             "warnings": scatter.warnings,
             "errors": scatter.errors,
         }))?;
-        println!("{output}");
+        output::status::data(&output);
     } else {
-        println!("{}", output::tables::scatter_metadata(&scatter));
+        output::status::data(output::tables::scatter_metadata(&scatter));
         if let Some(w) = output::tables::scatter_warnings(&scatter) {
-            println!();
-            println!("{}", output::theme::warn("Warnings:"));
-            println!("{w}");
+            output::status::blank();
+            output::status::data(output::theme::warn("Warnings:"));
+            output::status::data(w);
         }
         if let Some(e) = output::tables::scatter_errors(&scatter) {
-            println!();
-            println!("{}", output::theme::error("Errors:"));
-            println!("{e}");
+            output::status::blank();
+            output::status::data(output::theme::error("Errors:"));
+            output::status::data(e);
         }
     }
 
@@ -265,29 +265,29 @@ fn show_scatter_metadata(path: &Path, full_json: bool) -> Result<()> {
 fn print_plan(plan: &sp::FlashPlan, json: bool) -> Result<()> {
     if json {
         let output = serde_json::to_string_pretty(plan)?;
-        println!("{output}");
+        output::status::data(&output);
     } else {
-        println!("{}", output::theme::heading("Flash Plan"));
-        println!();
-        println!("{}", output::tables::plan_summary(plan));
-        println!();
+        output::status::heading("Flash Plan");
+        output::status::blank();
+        output::status::data(output::tables::plan_summary(plan));
+        output::status::blank();
         if !plan.actions.is_empty() {
-            println!("{}", output::tables::plan_actions(plan));
+            output::status::data(output::tables::plan_actions(plan));
         }
         if let Some(s) = output::tables::plan_skipped(plan) {
-            println!();
-            println!("{}", output::theme::dim("Skipped partitions:"));
-            println!("{s}");
+            output::status::blank();
+            output::status::data(output::theme::dim("Skipped partitions:"));
+            output::status::data(s);
         }
         if let Some(w) = output::tables::plan_warnings(plan) {
-            println!();
-            println!("{}", output::theme::warn("Warnings:"));
-            println!("{w}");
+            output::status::blank();
+            output::status::data(output::theme::warn("Warnings:"));
+            output::status::data(w);
         }
         if let Some(e) = output::tables::plan_errors(plan) {
-            println!();
-            println!("{}", output::theme::error("Errors:"));
-            println!("{e}");
+            output::status::blank();
+            output::status::data(output::theme::error("Errors:"));
+            output::status::data(e);
         }
     }
 
