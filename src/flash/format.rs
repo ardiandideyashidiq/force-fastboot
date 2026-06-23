@@ -192,7 +192,7 @@ impl FlashExecutor {
         .await;
 
         match result {
-            Ok(()) => FormatOutcome {
+            Ok(_) => FormatOutcome {
                 partition: partition.into(),
                 status: FormatStatus::Wiped,
             },

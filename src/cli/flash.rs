@@ -343,8 +343,8 @@ async fn run_raw_image(
     let mut failed = 0usize;
     for target in &targets {
         match executor.flash_raw_image(target, &image).await {
-            Ok(()) => {
-                info!(partition = %target, "flash successful");
+            Ok(resp) => {
+                info!(partition = %target, response = resp, "flash successful");
                 succeeded += 1;
             }
             Err(e) => {

@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use crate::flash::error::FlashError;
 
 /// Outcome of a single flash action.
@@ -5,6 +7,10 @@ use crate::flash::error::FlashError;
 pub struct FlashOutcome {
     pub partition: String,
     pub success: bool,
+    /// The device response message (e.g. "Flashing succeeded").
+    pub response: Option<String>,
+    /// Wall-clock duration of this flash operation.
+    pub duration: Duration,
     pub error: Option<FlashError>,
 }
 

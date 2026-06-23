@@ -33,18 +33,19 @@ pub async fn run(action: DeviceAction) -> Result<()> {
             executor.reboot_to(boot_target).await?;
         }
         DeviceAction::Lock => {
-            executor.flashing_lock().await?;
+            let resp = executor.flashing_lock().await?;
+            println!("  {} ({})", output::theme::ok("OKAY"), resp);
         }
         DeviceAction::Unlock => {
-            executor.flashing_unlock().await?;
+            let resp = executor.flashing_unlock().await?;
+            println!("  {} ({})", output::theme::ok("OKAY"), resp);
         }
         DeviceAction::SetActive { slot } => {
             if slot != "a" && slot != "b" {
                 anyhow::bail!("invalid slot '{slot}': expected 'a' or 'b'");
             }
-            info!(%slot, "setting active slot");
-            executor.set_active_slot(&slot).await?;
-            info!(%slot, "active slot set");
+            let resp = executor.set_active_slot(&slot).await?;
+            println!("  {} {} ({})", output::theme::ok("OKAY"), slot, resp);
         }
         DeviceAction::GetVar { var } => {
             match executor.get_var(&var).await {

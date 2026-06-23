@@ -231,6 +231,11 @@ pub fn device_info(vars: &HashMap<String, String>) -> String {
     colored(Table::new(rows))
 }
 
+fn fmt_duration(d: &std::time::Duration) -> String {
+    let secs = d.as_secs_f64();
+    format!("[{secs:7.3}s]")
+}
+
 // ── Flash results ────────────────────────────────────────────────────
 
 #[must_use]
@@ -252,12 +257,22 @@ pub fn flash_result(result: &FlashResult) -> String {
     let mut lines = vec![header];
 
     for outcome in &result.outcomes {
-        if let Some(ref err) = outcome.error {
+        if outcome.success {
+            let timing = fmt_duration(&outcome.duration);
             lines.push(format!(
-                "  {} {} — {}",
-                super::theme::error("FAILED"),
+                "  {} {}  {}",
+                super::theme::ok("OKAY"),
+                super::theme::dim(&timing),
                 outcome.partition,
-                err
+            ));
+        } else if let Some(ref err) = outcome.error {
+            // AOSP-style: FAILED (remote: '<message>')
+            let msg = format!("(remote: '{err}')");
+            lines.push(format!(
+                "  {} {}  {}",
+                super::theme::error("FAILED"),
+                super::theme::dim(&msg),
+                outcome.partition,
             ));
         }
     }

@@ -253,60 +253,53 @@ impl NusbFastBoot {
         }
     }
 
-    /// Flash downloaded data to a given target partition
-    pub async fn flash(&mut self, target: &str) -> Result<(), NusbFastBootError> {
+    /// Flash downloaded data to a given target partition.
+    /// Returns the device response message on success.
+    pub async fn flash(&mut self, target: &str) -> Result<String, NusbFastBootError> {
         let cmd = FastBootCommand::Flash(target);
-        self.execute(cmd).await.map(|v| {
-            trace!("Flash ok: {v}");
-        })
+        self.execute(cmd).await
     }
 
-    /// Continue booting
-    pub async fn continue_boot(&mut self) -> Result<(), NusbFastBootError> {
+    /// Continue booting.
+    /// Returns the device response message on success.
+    pub async fn continue_boot(&mut self) -> Result<String, NusbFastBootError> {
         let cmd = FastBootCommand::<&str>::Continue;
-        self.execute(cmd).await.map(|v| {
-            trace!("Continue ok: {v}");
-        })
+        self.execute(cmd).await
     }
 
-    /// Erasing the given target partition
-    pub async fn erase(&mut self, target: &str) -> Result<(), NusbFastBootError> {
+    /// Erasing the given target partition.
+    /// Returns the device response message on success.
+    pub async fn erase(&mut self, target: &str) -> Result<String, NusbFastBootError> {
         let cmd = FastBootCommand::Erase(target);
-        self.execute(cmd).await.map(|v| {
-            trace!("Erase ok: {v}");
-        })
+        self.execute(cmd).await
     }
 
-    /// Reboot the device
-    pub async fn reboot(&mut self) -> Result<(), NusbFastBootError> {
+    /// Reboot the device.
+    /// Returns the device response message on success.
+    pub async fn reboot(&mut self) -> Result<String, NusbFastBootError> {
         let cmd = FastBootCommand::<&str>::Reboot;
-        self.execute(cmd).await.map(|v| {
-            trace!("Reboot ok: {v}");
-        })
+        self.execute(cmd).await
     }
 
-    /// Reboot the device to the bootloader
-    pub async fn reboot_to(&mut self, mode: &str) -> Result<(), NusbFastBootError> {
+    /// Reboot the device to the bootloader.
+    /// Returns the device response message on success.
+    pub async fn reboot_to(&mut self, mode: &str) -> Result<String, NusbFastBootError> {
         let cmd = FastBootCommand::<&str>::RebootTo(mode);
-        self.execute(cmd).await.map(|v| {
-            trace!("Reboot ok: {v}");
-        })
+        self.execute(cmd).await
     }
 
-    /// Send a flashing command (lock, unlock, lock_critical, unlock_critical, get_unlock_ability)
-    pub async fn flashing(&mut self, cmd: &str) -> Result<(), NusbFastBootError> {
+    /// Send a flashing command (lock, unlock, lock_critical, unlock_critical, get_unlock_ability).
+    /// Returns the device response message on success.
+    pub async fn flashing(&mut self, cmd: &str) -> Result<String, NusbFastBootError> {
         let c = FastBootCommand::Flashing(cmd);
-        self.execute(c).await.map(|v| {
-            trace!("flashing {cmd}: {v}");
-        })
+        self.execute(c).await
     }
 
-    /// Set active boot slot ("a" or "b")
-    pub async fn set_active(&mut self, slot: &str) -> Result<(), NusbFastBootError> {
+    /// Set active boot slot ("a" or "b").
+    /// Returns the device response message on success.
+    pub async fn set_active(&mut self, slot: &str) -> Result<String, NusbFastBootError> {
         let c = FastBootCommand::SetActive(slot);
-        self.execute(c).await.map(|v| {
-            trace!("set_active {slot}: {v}");
-        })
+        self.execute(c).await
     }
 
     /// Check whether a partition is a logical (dynamic) partition.
@@ -316,18 +309,17 @@ impl NusbFastBoot {
     }
 
     /// Resize a logical partition to the given size.
+    /// Returns the device response message on success.
     pub async fn resize_logical_partition(
         &mut self,
         partition: &str,
         size: u64,
-    ) -> Result<(), NusbFastBootError> {
+    ) -> Result<String, NusbFastBootError> {
         let cmd = FastBootCommand::<&str>::ResizeLogicalPartition {
             partition,
             size,
         };
-        self.execute(cmd).await.map(|v| {
-            trace!("resize-logical-partition {partition}: {v}");
-        })
+        self.execute(cmd).await
     }
 
     /// Retrieve all variables

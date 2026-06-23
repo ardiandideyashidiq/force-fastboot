@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use fastboot_protocol::nusb::NusbFastBoot;
 use indicatif::ProgressBar;
 use tokio::io::AsyncReadExt;
-use tracing::{debug, info, trace, warn};
+use tracing::{debug, info, warn};
 
 use crate::flash::error::FlashError;
 use crate::flash::error::Result;
@@ -133,26 +133,29 @@ impl FlashExecutor {
 
     /// Reboot the device (to system).
     pub async fn reboot(&mut self) -> Result<()> {
-        self.fb.reboot().await.map_err(FlashError::from)
+        self.fb.reboot().await.map_err(FlashError::from).map(drop)
     }
 
     /// Reboot to a specific mode (bootloader, fastboot, recovery).
     pub async fn reboot_to(&mut self, target: BootTarget) -> Result<()> {
-        self.fb.reboot_to(target.as_str()).await.map_err(FlashError::from)
+        self.fb.reboot_to(target.as_str()).await.map_err(FlashError::from).map(drop)
     }
 
     /// Lock the bootloader.
-    pub async fn flashing_lock(&mut self) -> Result<()> {
+    /// Returns the device response message.
+    pub async fn flashing_lock(&mut self) -> Result<String> {
         self.fb.flashing("lock").await.map_err(FlashError::from)
     }
 
     /// Unlock the bootloader.
-    pub async fn flashing_unlock(&mut self) -> Result<()> {
+    /// Returns the device response message.
+    pub async fn flashing_unlock(&mut self) -> Result<String> {
         self.fb.flashing("unlock").await.map_err(FlashError::from)
     }
 
     /// Set the active boot slot.
-    pub async fn set_active_slot(&mut self, slot: &str) -> Result<()> {
+    /// Returns the device response message.
+    pub async fn set_active_slot(&mut self, slot: &str) -> Result<String> {
         self.fb.set_active(slot).await.map_err(FlashError::from)
     }
 
@@ -197,29 +200,35 @@ impl FlashExecutor {
 
         for action in &all_actions {
             let partition = &action.partition;
-            trace!(%partition, "processing flash action");
+            info!(%partition, "Writing '{partition}' ...");
 
+            let start = Instant::now();
             let result = self
                 .flash_partition(action, dry_run, max_download, progress_bar)
                 .await;
+            let duration = start.elapsed();
 
             match result {
-                Ok(()) => {
-                    info!(%partition, "flash successful");
+                Ok(response) => {
+                    info!(%partition, duration = ?duration, response, "flash successful");
                     outcomes.push(FlashOutcome {
                         partition: partition.clone(),
                         success: true,
+                        response: Some(response),
+                        duration,
                         error: None,
                     });
                 }
                 Err(e) => {
-                    warn!(%partition, error = %e, "flash failed, skipping");
+                    warn!(%partition, duration = ?duration, error = %e, "flash failed, skipping");
                     if let Some(pb) = progress_bar {
                         pb.abandon_with_message(format!("{partition} failed"));
                     }
                     outcomes.push(FlashOutcome {
                         partition: partition.clone(),
                         success: false,
+                        response: None,
+                        duration,
                         error: Some(e),
                     });
                 }
@@ -245,6 +254,7 @@ impl FlashExecutor {
             .resize_logical_partition(partition, size)
             .await
             .map_err(FlashError::from)
+            .map(drop)
     }
 
     /// Wait for a fastboot device to appear, trying every 250ms up to `timeout`.
@@ -294,26 +304,29 @@ impl FlashExecutor {
 
     /// Flash the vendored empty vbmeta image to both slots.
     /// This disables dm-verity and AVB verification (flags=3).
-    pub async fn flash_empty_vbmeta(&mut self) -> Result<()> {
+    /// Returns the device response from the last flash.
+    pub async fn flash_empty_vbmeta(&mut self) -> Result<String> {
         let data = crate::flash::vbmeta::EMPTY_VBMETA;
         debug!("flashing empty vbmeta to both slots");
+        let mut last_resp = String::new();
         for slot in &["a", "b"] {
             let partition = format!("vbmeta_{slot}");
             info!(%partition, "flashing empty vbmeta");
             let mut sender = self.fb.download(u32::try_from(data.len()).unwrap_or(u32::MAX)).await?;
             sender.extend_from_slice(data).await?;
             sender.finish().await?;
-            self.fb.flash(&partition).await?;
+            last_resp = self.fb.flash(&partition).await?;
         }
-        Ok(())
+        Ok(last_resp)
     }
 
     /// Flash a raw image to a partition. Public entry point for `flash-raw`.
+    /// Returns the device response message.
     pub async fn flash_raw_image(
         &mut self,
         partition: &str,
         image_path: &Path,
-    ) -> Result<()> {
+    ) -> Result<String> {
         debug!(%partition, image_path = %image_path.display(), "flash_raw_image entry");
         let max_download = self.fb.get_var("max-download-size").await.ok()
             .and_then(|s| fastboot_protocol::protocol::parse_u32(&s).ok())
@@ -324,13 +337,14 @@ impl FlashExecutor {
 
     /// Shared helper: erase partition, then download+flash (single or chunked).
     /// Detects Android sparse images and routes to the sparse-aware handler.
+    /// Returns the device response message.
     async fn flash_image_to_partition(
         &mut self,
         partition: &str,
         path: &Path,
         max_download: u32,
         progress_bar: Option<&ProgressBar>,
-    ) -> Result<()> {
+    ) -> Result<String> {
         // Route Android sparse images through the sparse-aware handler.
         if crate::flash::sparse::is_sparse_image(path).await.unwrap_or(false) {
             let file_len = tokio::fs::metadata(path).await?.len();
@@ -375,7 +389,7 @@ impl FlashExecutor {
         dry_run: bool,
         max_download: u32,
         progress_bar: Option<&ProgressBar>,
-    ) -> Result<()> {
+    ) -> Result<String> {
         let partition = &action.partition;
         let Some(image_path) = action.image_resolved_path() else {
             return Err(FlashError::ActionFailed {
@@ -399,20 +413,21 @@ impl FlashExecutor {
         if dry_run {
             let file_len = tokio::fs::metadata(path).await?.len();
             info!(%partition, %image_path, size = file_len, "dry run: would flash this image");
-            return Ok(());
+            return Ok(String::new());
         }
 
         self.flash_image_to_partition(partition, path, max_download, progress_bar).await
     }
 
     /// Flash a partition that fits in a single download.
+    /// Returns the device response message.
     pub(crate) async fn flash_raw_partition(
         &mut self,
         partition: &str,
         path: &Path,
         size: u32,
         progress_bar: Option<&ProgressBar>,
-    ) -> Result<()> {
+    ) -> Result<String> {
         debug!(%partition, file_size = size, "flashing raw partition");
         let mut file = tokio::fs::File::open(path).await?;
         let mut sender = self.fb.download(size).await?;
@@ -432,15 +447,16 @@ impl FlashExecutor {
         }
 
         sender.finish().await?;
-        self.fb.flash(partition).await?;
+        let resp = self.fb.flash(partition).await?;
         if let Some(pb) = progress_bar {
             pb.set_position(u64::from(size));
         }
-        debug!(%partition, "raw partition flash complete");
-        Ok(())
+        debug!(%partition, response = resp, "raw partition flash complete");
+        Ok(resp)
     }
 
     /// Flash a partition by splitting into chunks that fit `max_download_size`.
+    /// Returns the device response message from the final chunk flash.
     pub(crate) async fn flash_large_partition(
         &mut self,
         partition: &str,
@@ -448,13 +464,14 @@ impl FlashExecutor {
         file_len: u64,
         max_download: u32,
         progress_bar: Option<&ProgressBar>,
-    ) -> Result<()> {
+    ) -> Result<String> {
         debug!(%partition, file_len, max_download, "starting chunked flash");
         let chunk_size = u64::from(max_download);
         let mut file = tokio::fs::File::open(path).await?;
         let mut remaining = file_len;
         let mut chunk_index = 0u32;
         let mut buf = vec![0u8; 1024 * 1024];
+        let mut last_resp = String::new();
 
         while remaining > 0 {
             let this_chunk = u32::try_from(remaining.min(chunk_size)).unwrap_or(u32::MAX);
@@ -476,7 +493,7 @@ impl FlashExecutor {
             }
 
             sender.finish().await?;
-            self.fb.flash(partition).await?;
+            last_resp = self.fb.flash(partition).await?;
 
             remaining = remaining.saturating_sub(u64::from(this_chunk));
 
@@ -490,8 +507,8 @@ impl FlashExecutor {
             pb.set_position(file_len);
         }
 
-        debug!(%partition, chunks = chunk_index, "chunked flash complete");
-        Ok(())
+        debug!(%partition, chunks = chunk_index, response = last_resp, "chunked flash complete");
+        Ok(last_resp)
     }
 }
 

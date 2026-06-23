@@ -55,6 +55,7 @@ pub(crate) async fn is_sparse_image(path: &Path) -> Result<bool> {
 /// Parse the sparse file header + chunk headers, split into parts that each
 /// fit within `max_download`, then send each part as a separate
 /// download+flash transaction.  The bootloader reassembles the pieces.
+/// Returns the device response message from the final split flash.
 pub(crate) async fn flash_sparse_image(
     fb: &mut fastboot_protocol::nusb::NusbFastBoot,
     partition: &str,
@@ -62,7 +63,7 @@ pub(crate) async fn flash_sparse_image(
     file_len: u64,
     max_download: u32,
     progress_bar: Option<&ProgressBar>,
-) -> Result<()> {
+) -> Result<String> {
     debug!(%partition, file_len, max_download, "flashing sparse image");
 
     let mut file = tokio::fs::File::open(path).await?;
@@ -114,6 +115,7 @@ pub(crate) async fn flash_sparse_image(
     // ---- erase partition once, then flash each split ----
     fb.erase(partition).await?;
 
+    let mut last_resp = String::new();
     for (i, split) in splits.iter().enumerate() {
         debug!(%partition, part = i, "sending sparse split");
 
@@ -155,15 +157,15 @@ pub(crate) async fn flash_sparse_image(
         }
 
         sender.finish().await?;
-        fb.flash(partition).await?;
+        last_resp = fb.flash(partition).await?;
     }
 
     if let Some(pb) = progress_bar {
         pb.set_position(total_download);
     }
 
-    debug!(%partition, total_download, "sparse flash complete");
-    Ok(())
+    debug!(%partition, total_download, response = last_resp, "sparse flash complete");
+    Ok(last_resp)
 }
 
 /// Flash a raw image by wrapping it in Android sparse format splits.
@@ -171,13 +173,14 @@ pub(crate) async fn flash_sparse_image(
 /// Uses `split_raw()` to convert the raw file into sparse-format splits
 /// that each fit within `max_download`.  The bootloader expands them
 /// on-device, avoiding transmission of large zero-filled regions.
+/// Returns the device response message from the final split flash.
 pub(crate) async fn flash_sparse_wrapped(
     fb: &mut fastboot_protocol::nusb::NusbFastBoot,
     partition: &str,
     path: &Path,
     file_len: u64,
     max_download: u32,
-) -> Result<()> {
+) -> Result<String> {
     debug!(%partition, file_len, max_download, "wrapping raw image in sparse format");
 
     let raw_size = usize::try_from(file_len)
@@ -195,6 +198,7 @@ pub(crate) async fn flash_sparse_wrapped(
     // ---- erase partition once, then flash each split ----
     fb.erase(partition).await?;
 
+    let mut last_resp = String::new();
     for (i, split) in splits.iter().enumerate() {
         debug!(%partition, part = i, "sending sparse-wrapped split");
 
@@ -227,9 +231,9 @@ pub(crate) async fn flash_sparse_wrapped(
         }
 
         sender.finish().await?;
-        fb.flash(partition).await?;
+        last_resp = fb.flash(partition).await?;
     }
 
-    debug!(%partition, splits = splits.len(), "sparse-wrapped flash complete");
-    Ok(())
+    debug!(%partition, splits = splits.len(), response = last_resp, "sparse-wrapped flash complete");
+    Ok(last_resp)
 }
