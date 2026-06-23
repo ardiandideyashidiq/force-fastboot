@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::path::Path;
 
+use std::cell::Cell;
+
 use android_sparse_image::{FileHeader, FILE_HEADER_BYTES_LEN};
 use anyhow::{bail, Context, Result};
 use tempfile::TempDir;
@@ -190,7 +192,7 @@ async fn transition_mode(
 pub async fn execute_gsi_flash(
     mut executor: FlashExecutor,
     image: &Path,
-    mut report: impl FnMut(GsiEvent),
+    mut user_report: impl FnMut(GsiEvent),
 ) -> Result<GsiFlashOutcome> {
     let vars = executor.device_vars().clone();
     let mode = detect_fastboot_mode(&vars);
@@ -198,6 +200,28 @@ pub async fn execute_gsi_flash(
     let gsi_expanded_size = read_gsi_expanded_size(image)
         .await
         .with_context(|| format!("cannot determine expanded size of {}", image.display()))?;
+
+    let flash_count = Cell::new(0u64);
+    let wipe_count = Cell::new(0u64);
+    let skipped_count = Cell::new(0u64);
+    let total_bytes = Cell::new(0u64);
+
+    let mut report = |event: GsiEvent| {
+        match &event {
+            GsiEvent::Flashing { size_bytes, .. } => {
+                flash_count.set(flash_count.get() + 1);
+                total_bytes.set(total_bytes.get() + size_bytes);
+            }
+            GsiEvent::Wiping { .. } => {
+                wipe_count.set(wipe_count.get() + 1);
+            }
+            GsiEvent::PartitionSkipped { .. } => {
+                skipped_count.set(skipped_count.get() + 1);
+            }
+            _ => {}
+        }
+        user_report(event);
+    };
 
     report(GsiEvent::ModeDetected(mode));
 
@@ -278,7 +302,12 @@ pub async fn execute_gsi_flash(
     executor.reboot().await?;
 
     Ok(GsiFlashOutcome {
-        summary: GsiFlashSummary::default(),
+        summary: GsiFlashSummary {
+            flash_count: flash_count.get() as usize,
+            wipe_count: wipe_count.get() as usize,
+            skipped_count: skipped_count.get() as usize,
+            total_bytes: total_bytes.get(),
+        },
     })
 }
 
