@@ -192,6 +192,7 @@ async fn transition_mode(
 pub async fn execute_gsi_flash(
     mut executor: FlashExecutor,
     image: &Path,
+    clean_test: bool,
     mut user_report: impl FnMut(GsiEvent),
 ) -> Result<GsiFlashOutcome> {
     let vars = executor.device_vars().clone();
@@ -236,7 +237,7 @@ pub async fn execute_gsi_flash(
             executor.flash_empty_vbmeta().await?;
 
             report(GsiEvent::Step(GsiStep::WipingUserdata));
-            executor.format_data(0).await;
+            executor.format_data(0, clean_test).await;
 
             // Transition to fastbootd where logical partitions are visible.
             executor = transition_mode(executor, FastbootMode::Fastbootd, &mut report).await?;
@@ -290,7 +291,7 @@ pub async fn execute_gsi_flash(
             executor.flash_empty_vbmeta().await?;
 
             report(GsiEvent::Step(GsiStep::WipingUserdata));
-            executor.format_data(0).await;
+            executor.format_data(0, clean_test).await;
         }
     }
 

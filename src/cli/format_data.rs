@@ -10,10 +10,10 @@ use crate::output;
 /// # Errors
 ///
 /// Returns an error if the device is not reachable or formatting fails.
-pub async fn run(fs_options: Vec<String>) -> Result<()> {
+pub async fn run(fs_options: Vec<String>, clean_test: bool) -> Result<()> {
     let fs_options = generator::parse_fs_options(&fs_options);
 
-    debug!(?fs_options, "format-data started");
+    debug!(?fs_options, clean_test, "format-data started");
 
     let mut executor = output::spinner::run_with_spinner(
         "Connecting to fastboot device for format-data...",
@@ -21,7 +21,7 @@ pub async fn run(fs_options: Vec<String>) -> Result<()> {
     )
     .await?;
 
-    let result = executor.format_data(fs_options).await;
+    let result = executor.format_data(fs_options, clean_test).await;
 
     let failed = output::format_display::print_format_results(&result);
     if failed > 0 {

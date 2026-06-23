@@ -10,11 +10,14 @@ use crate::format::generator::{self, FsType};
 impl FlashExecutor {
     /// Erase userdata, cache, and metadata, then format with an empty filesystem.
     /// Equivalent to `fastboot -w`.
-    pub async fn format_data(&mut self, fs_options: u32) -> FormatDataResult {
+    ///
+    /// When `clean_test` is true, only erases — skips filesystem generation and
+    /// sparse-wrap flash.  All partitions are reported as `ErasedOnly`.
+    pub async fn format_data(&mut self, fs_options: u32, clean_test: bool) -> FormatDataResult {
         let partitions = ["userdata", "cache", "metadata"];
         let mut outcomes = Vec::with_capacity(partitions.len());
 
-        info!(partitions = ?partitions, "starting format-data");
+        info!(partitions = ?partitions, clean_test, "starting format-data");
 
         let (_tools, tools_dir) = match generator::extract_format_tools() {
             Ok(pair) => pair,
@@ -54,7 +57,7 @@ impl FlashExecutor {
 
         for partition in &partitions {
             let outcome = self
-                .wipe_partition(partition, fs_options, max_download, erase_blk, logical_blk, &tools_dir)
+                .wipe_partition(partition, fs_options, max_download, erase_blk, logical_blk, &tools_dir, clean_test)
                 .await;
             match &outcome.status {
                 FormatStatus::Wiped => info!(%partition, "wiped ✓"),
@@ -76,7 +79,7 @@ impl FlashExecutor {
     }
 
     /// Erase, generate empty filesystem, download, and flash a single partition.
-    #[allow(clippy::too_many_lines)]
+    #[allow(clippy::too_many_lines, clippy::too_many_arguments)]
     async fn wipe_partition(
         &mut self,
         partition: &str,
@@ -85,6 +88,7 @@ impl FlashExecutor {
         erase_blk: u32,
         logical_blk: u32,
         tools_dir: &Path,
+        clean_test: bool,
     ) -> FormatOutcome {
         debug!(%partition, "wipe_partition: querying partition type");
         // 1. query partition-type — skip if nonexistent
@@ -122,6 +126,14 @@ impl FlashExecutor {
                 status: FormatStatus::ErasedOnly(partition_type),
             };
         };
+
+        // 3b. clean-test: erase-only, skip filesystem generation and flash
+        if clean_test {
+            return FormatOutcome {
+                partition: partition.into(),
+                status: FormatStatus::ErasedOnly(partition_type),
+            };
+        }
 
         // 4. query partition size
         debug!(%partition, "querying partition size");

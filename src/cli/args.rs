@@ -42,6 +42,9 @@ pub enum Commands {
         /// Comma-separated filesystem options: casefold, projid, compress
         #[arg(long, value_delimiter = ',')]
         fs_options: Vec<String>,
+        /// Erase-only: skip filesystem generation (testing)
+        #[arg(long)]
+        clean_test: bool,
     },
     /// Fastboot device operations
     Device {
@@ -104,6 +107,9 @@ pub enum FlashAction {
         /// Skip format-data step even when --clean is set
         #[arg(long)]
         no_format: bool,
+        /// Erase-only format for clean install (testing, implies --clean)
+        #[arg(long)]
+        clean_test: bool,
     },
     /// Flash a Generic System Image (GSI) to the device.
     /// Handles vbmeta disable, userdata wipe, and mode transitions
@@ -111,6 +117,9 @@ pub enum FlashAction {
     Gsi {
         /// Path to the GSI system image (e.g. system.img)
         image: std::path::PathBuf,
+        /// Erase-only format for data partitions (testing)
+        #[arg(long)]
+        clean_test: bool,
     },
 }
 

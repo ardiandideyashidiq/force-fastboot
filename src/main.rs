@@ -33,8 +33,8 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
         Some(Commands::DisableVbmeta) => {
             pawflash::cli::disable_vbmeta::run().await?;
         }
-        Some(Commands::FormatData { fs_options }) => {
-            pawflash::cli::format_data::run(fs_options).await?;
+        Some(Commands::FormatData { fs_options, clean_test }) => {
+            pawflash::cli::format_data::run(fs_options, clean_test).await?;
         }
         Some(Commands::Device { action }) => {
             pawflash::cli::device::run(action).await?;

@@ -13,7 +13,7 @@ use crate::output;
 ///
 /// Returns an error if the image is missing, the device is unreachable,
 /// or any stage of the GSI flash workflow fails.
-pub async fn run(image: &Path) -> Result<()> {
+pub async fn run(image: &Path, clean_test: bool) -> Result<()> {
     if !image.exists() {
         anyhow::bail!("GSI image not found: {}", image.display());
     }
@@ -30,7 +30,7 @@ pub async fn run(image: &Path) -> Result<()> {
     let mut gsi_progress = output::gsi_progress::GsiProgress::new();
     let report = |event: GsiEvent| gsi_progress.report(&event);
 
-    let outcome = crate::gsi::execute_gsi_flash(executor, &image, report).await?;
+    let outcome = crate::gsi::execute_gsi_flash(executor, &image, clean_test, report).await?;
 
     gsi_progress.finish();
 

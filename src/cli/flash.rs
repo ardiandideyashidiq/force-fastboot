@@ -29,6 +29,7 @@ struct ScatterConfig<'a> {
     allow_incomplete_slots: bool,
     clean: bool,
     no_format: bool,
+    clean_test: bool,
 }
 
 fn print_flash_help() -> Result<()> {
@@ -67,6 +68,7 @@ pub async fn run(
             ref exclude,
             clean,
             no_format,
+            clean_test,
             ref firmware_dir,
             check_images,
             include_preloader,
@@ -87,7 +89,7 @@ pub async fn run(
                 && !json
             {
                 warn!("no --part/--group specified; interactive mode uses --mode dirty-flash (your --mode {mode:?} is ignored)");
-                return crate::cli::interactive::run(&scatter_path, exclude, clean, no_format).await;
+                return crate::cli::interactive::run(&scatter_path, exclude, clean, no_format, clean_test).await;
             }
 
             let cfg = ScatterConfig {
@@ -104,6 +106,7 @@ pub async fn run(
                 firmware_dir: firmware_dir.as_deref(),
                 clean,
                 no_format,
+                clean_test,
                 check_images,
                 include_preloader,
                 image_search,
@@ -111,8 +114,8 @@ pub async fn run(
             };
             run_scatter(&cfg).await?;
         }
-        Some(FlashAction::Gsi { ref image }) => {
-            crate::cli::gsi::run(image).await?;
+        Some(FlashAction::Gsi { ref image, clean_test }) => {
+            crate::cli::gsi::run(image, clean_test).await?;
         }
         None => {
             let Some(partition) = partition else {
@@ -166,7 +169,7 @@ async fn run_scatter(cfg: &ScatterConfig<'_>) -> Result<()> {
         image_search: cfg.image_search,
         include_preloader: cfg.include_preloader,
         allow_incomplete_slots: cfg.allow_incomplete_slots,
-        clean: cfg.clean,
+        clean: cfg.clean || cfg.clean_test,
     };
 
     info!("building flash plan");
@@ -203,10 +206,11 @@ async fn run_scatter(cfg: &ScatterConfig<'_>) -> Result<()> {
     )
     .await?;
 
-    // ── Optional: format data partitions (--clean, not --no-format) ─
-    if cfg.clean && !cfg.no_format {
+    // ── Optional: format data partitions (--clean/--clean-test) ────
+    let do_format = (cfg.clean || cfg.clean_test) && !cfg.no_format;
+    if do_format {
         output::status::heading("Formatting data partitions");
-        let fmt_result = executor.format_data(0).await;
+        let fmt_result = executor.format_data(0, cfg.clean_test).await;
         let fmt_failed = output::format_display::print_format_results(&fmt_result);
         if fmt_failed > 0 {
             bail!("format-data failed with {fmt_failed} failure(s)");
