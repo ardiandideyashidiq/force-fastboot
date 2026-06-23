@@ -360,7 +360,9 @@ impl FlashExecutor {
         self.fb.erase(partition).await?;
 
         if size > max_download {
-            info!(%partition, size = file_len, %max_download, "image exceeds max download, splitting into chunks");
+            let chunk_size = u64::from(max_download);
+            let total_chunks = u64::from(size).div_ceil(chunk_size);
+            info!(%partition, size = file_len, %max_download, chunks = total_chunks, "image exceeds max download, splitting into chunks");
             self.flash_large_partition(partition, path, file_len, max_download, progress_bar).await
         } else {
             self.flash_raw_partition(partition, path, size, progress_bar).await

@@ -34,6 +34,7 @@ pub enum GsiStep {
     WipingUserdata,
     RebootingToBootloader,
     RebootingToFastbootd,
+    WaitingForFastbootd,
     GsiFlowComplete,
 }
 
@@ -54,6 +55,7 @@ impl GsiStep {
             Self::WipingUserdata => "wiping userdata",
             Self::RebootingToBootloader => "rebooting to bootloader",
             Self::RebootingToFastbootd => "rebooting to fastbootd",
+            Self::WaitingForFastbootd => "waiting for fastbootd",
             Self::GsiFlowComplete => "GSI flow complete",
         }
     }

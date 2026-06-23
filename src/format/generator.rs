@@ -137,6 +137,25 @@ pub async fn generate_empty_fs(
     }
 }
 
+fn apply_tool_env(cmd: &mut tokio::process::Command, tools_dir: &Path) {
+    cmd.current_dir(tools_dir);
+
+    #[cfg(target_os = "linux")]
+    {
+        let lib_dir = tools_dir.join("lib64");
+        if lib_dir.is_dir() {
+            let new_path = if let Some(existing) = std::env::var_os("LD_LIBRARY_PATH") {
+                let mut paths: Vec<_> = std::env::split_paths(&existing).collect();
+                paths.insert(0, lib_dir);
+                std::env::join_paths(paths).unwrap_or(existing)
+            } else {
+                lib_dir.into_os_string()
+            };
+            cmd.env("LD_LIBRARY_PATH", new_path);
+        }
+    }
+}
+
 async fn generate_ext4(
     tools_dir: &Path,
     output: &Path,
@@ -157,6 +176,7 @@ async fn generate_ext4(
     let conf = tools_dir.join("mke2fs.conf");
 
     let mut cmd = tokio::process::Command::new(&mke2fs);
+    apply_tool_env(&mut cmd, tools_dir);
     cmd.env("MKE2FS_CONFIG", &conf);
     cmd.arg("-t").arg("ext4");
     cmd.arg("-b").arg(BLOCK_SIZE.to_string());
@@ -214,6 +234,7 @@ async fn generate_f2fs(
     debug!(part_size, fs_options, "generating f2fs filesystem");
 
     let mut cmd = tokio::process::Command::new(&mkf2fs);
+    apply_tool_env(&mut cmd, tools_dir);
     cmd.arg("-S").arg(part_size.to_string());
     cmd.arg("-g").arg("android");
 

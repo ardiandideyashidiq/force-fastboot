@@ -42,9 +42,24 @@ impl FlashExecutor {
             .and_then(|s| protocol::parse_u32(&s).ok())
             .unwrap_or(256 * 1024 * 1024);
 
+        let erase_blk = self
+            .fb
+            .get_var("erase-block-size")
+            .await
+            .ok()
+            .and_then(|s| parse_getvar_hex_u64(&s).and_then(|v| u32::try_from(v).ok()))
+            .unwrap_or(0);
+        let logical_blk = self
+            .fb
+            .get_var("logical-block-size")
+            .await
+            .ok()
+            .and_then(|s| parse_getvar_hex_u64(&s).and_then(|v| u32::try_from(v).ok()))
+            .unwrap_or(0);
+
         for partition in &partitions {
             let outcome = self
-                .wipe_partition(partition, fs_options, max_download, &tools_dir)
+                .wipe_partition(partition, fs_options, max_download, erase_blk, logical_blk, &tools_dir)
                 .await;
             match &outcome.status {
                 FormatStatus::Wiped => info!(%partition, "wiped ✓"),
@@ -72,6 +87,8 @@ impl FlashExecutor {
         partition: &str,
         fs_options: u32,
         max_download: u32,
+        erase_blk: u32,
+        logical_blk: u32,
         tools_dir: &Path,
     ) -> FormatOutcome {
         debug!(%partition, "wipe_partition: querying partition type");
@@ -132,30 +149,7 @@ impl FlashExecutor {
             };
         }
 
-        // 5. optional block sizes for stride optimisation
-        debug!(%partition, "querying erase/logical block sizes");
-        let erase_blk = self
-            .fb
-            .get_var("erase-block-size")
-            .await
-            .ok()
-            .and_then(|s| {
-                parse_getvar_hex_u64(&s)
-                    .and_then(|v| u32::try_from(v).ok())
-            })
-            .unwrap_or(0);
-        let logical_blk = self
-            .fb
-            .get_var("logical-block-size")
-            .await
-            .ok()
-            .and_then(|s| {
-                parse_getvar_hex_u64(&s)
-                    .and_then(|v| u32::try_from(v).ok())
-            })
-            .unwrap_or(0);
-
-        // 6. generate empty filesystem image
+        // 5. generate empty filesystem image (block sizes pre-fetched)
         debug!(%partition, %partition_type, part_size, "generating empty filesystem");
         let output_path = tools_dir.join("format.img");
         if let Err(e) = generator::generate_empty_fs(

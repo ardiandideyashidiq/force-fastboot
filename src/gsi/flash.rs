@@ -3,6 +3,7 @@ use std::path::Path;
 
 use anyhow::{bail, Context, Result};
 use tempfile::TempDir;
+use tokio::time::{sleep, Duration};
 use tracing::debug;
 
 use crate::flash::executor::{BootTarget, FlashExecutor};
@@ -124,6 +125,62 @@ async fn flash_product_gsi(
     Ok(())
 }
 
+/// Reboot the device to a target fastboot mode, wait for it to re-appear,
+/// re-fetch device variables, and verify the mode. Retries once on failure.
+///
+/// Short-circuits if already in the target mode.
+///
+/// # Errors
+///
+/// Returns an error if the reboot, wait, or mode verification fails.
+async fn transition_mode(
+    mut executor: FlashExecutor,
+    target: FastbootMode,
+    report: &mut impl FnMut(GsiEvent),
+) -> Result<FlashExecutor> {
+    if detect_fastboot_mode(executor.device_vars()) == target {
+        report(GsiEvent::ModeReady(target));
+        return Ok(executor);
+    }
+
+    let step = match target {
+        FastbootMode::Fastbootd => GsiStep::RebootingToFastbootd,
+        FastbootMode::Bootloader => GsiStep::RebootingToBootloader,
+    };
+    let boot_target = match target {
+        FastbootMode::Fastbootd => BootTarget::Fastboot,
+        FastbootMode::Bootloader => BootTarget::Bootloader,
+    };
+
+    for attempt in 0..=1 {
+        report(GsiEvent::Step(step));
+        if target == FastbootMode::Fastbootd {
+            report(GsiEvent::Step(GsiStep::WaitingForFastbootd));
+        }
+
+        let new_exec = executor
+            .reboot_and_wait(boot_target)
+            .await
+            .with_context(|| format!("failed to transition to {}", target.as_str()))?;
+
+        if detect_fastboot_mode(new_exec.device_vars()) == target {
+            report(GsiEvent::ModeReady(target));
+            return Ok(new_exec);
+        }
+
+        if attempt == 0 {
+            sleep(Duration::from_secs(2)).await;
+            executor = FlashExecutor::connect().await?;
+        } else {
+            bail!("device did not switch to {} after retry", target.as_str());
+        }
+    }
+
+    unreachable!()
+}
+
+// ── Top-level entry point ────────────────────────────────────────────
+
 /// Execute the full GSI flash workflow.
 ///
 /// Takes ownership of the executor, runs the state machine, and returns the
@@ -170,6 +227,8 @@ fn extract_tools() -> Result<TempDir> {
     Ok(dir)
 }
 
+// ── Entry-point branches ─────────────────────────────────────────────
+
 async fn gsi_from_bootloader(
     mut executor: FlashExecutor,
     image: &Path,
@@ -186,12 +245,7 @@ async fn gsi_from_bootloader(
     report(GsiEvent::Step(GsiStep::WipingUserdata));
     executor.format_data(0).await;
 
-    report(GsiEvent::Step(GsiStep::RebootingToFastbootd));
-    executor = executor
-        .reboot_and_wait(BootTarget::Fastboot)
-        .await
-        .with_context(|| "failed to transition to fastbootd")?;
-    report(GsiEvent::ModeReady(FastbootMode::Fastbootd));
+    executor = transition_mode(executor, FastbootMode::Fastbootd, report).await?;
 
     // Resolve system partition from fastbootd vars.
     // Logical partitions (inside super) are only visible in fastbootd.
@@ -253,12 +307,7 @@ async fn gsi_from_fastbootd(
     )
     .await?;
 
-    report(GsiEvent::Step(GsiStep::RebootingToBootloader));
-    executor = executor
-        .reboot_and_wait(BootTarget::Bootloader)
-        .await
-        .with_context(|| "failed to transition to bootloader")?;
-    report(GsiEvent::ModeReady(FastbootMode::Bootloader));
+    executor = transition_mode(executor, FastbootMode::Bootloader, report).await?;
 
     report(GsiEvent::Step(GsiStep::PreparingVbmetaFlash));
     report(GsiEvent::Step(GsiStep::FlashingVbmeta));
@@ -267,17 +316,15 @@ async fn gsi_from_fastbootd(
     report(GsiEvent::Step(GsiStep::WipingUserdata));
     executor.format_data(0).await;
 
-    report(GsiEvent::Step(GsiStep::RebootingToFastbootd));
-    executor
-        .reboot_and_wait(BootTarget::Fastboot)
-        .await
-        .with_context(|| "failed to transition back to fastbootd")?;
+    transition_mode(executor, FastbootMode::Fastbootd, report).await?;
 
     report(GsiEvent::Step(GsiStep::GsiFlowComplete));
     Ok(GsiFlashOutcome {
         summary: GsiFlashSummary::default(),
     })
 }
+
+// ── Shared helpers ───────────────────────────────────────────────────
 
 async fn flash_in_fastbootd(
     executor: &mut FlashExecutor,
