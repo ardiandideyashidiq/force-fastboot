@@ -1,3 +1,4 @@
+pub mod format_display;
 pub mod gsi_progress;
 pub mod prompts;
 pub mod spinner;

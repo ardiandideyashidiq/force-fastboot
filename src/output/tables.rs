@@ -232,8 +232,14 @@ pub fn device_info(vars: &HashMap<String, String>) -> String {
 }
 
 fn fmt_duration(d: &std::time::Duration) -> String {
-    let secs = d.as_secs_f64();
-    format!("[{secs:7.3}s]")
+    let total_secs = d.as_secs_f64();
+    if total_secs < 60.0 {
+        format!("[{total_secs:7.3}s]")
+    } else {
+        let m = d.as_secs() / 60;
+        let s = d.as_secs() % 60;
+        format!("[{m}m {s:2}s]")
+    }
 }
 
 // ── Flash results ────────────────────────────────────────────────────

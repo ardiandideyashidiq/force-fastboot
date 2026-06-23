@@ -199,6 +199,18 @@ async fn run_scatter(cfg: &ScatterConfig<'_>) -> Result<()> {
         FlashExecutor::connect(),
     )
     .await?;
+
+    // ── Optional: format data partitions (--clean) ──────────────────
+    if cfg.clean {
+        output::status::heading("Formatting data partitions");
+        let fmt_result = executor.format_data(0).await;
+        let fmt_failed = output::format_display::print_format_results(&fmt_result);
+        if fmt_failed > 0 {
+            bail!("format-data failed with {fmt_failed} failure(s)");
+        }
+        output::status::blank();
+    }
+
     debug!("connected, executing flash plan");
 
     let result = executor.execute_plan(&plan, false, None).await;

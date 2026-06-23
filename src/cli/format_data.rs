@@ -1,8 +1,7 @@
 use anyhow::Result;
-use tracing::{debug, warn};
+use tracing::debug;
 
 use crate::flash::executor::FlashExecutor;
-use crate::flash::results::FormatStatus;
 use crate::format::generator;
 use crate::output;
 
@@ -24,25 +23,7 @@ pub async fn run(fs_options: Vec<String>) -> Result<()> {
 
     let result = executor.format_data(fs_options).await;
 
-    for outcome in &result.outcomes {
-        match &outcome.status {
-            FormatStatus::Wiped => {
-                output::status::ok("OKAY", &outcome.partition);
-            }
-            FormatStatus::ErasedOnly(fs) => {
-                output::status::warn("WARN", format!("{} (erased, unrecognised fs: {fs})", outcome.partition));
-            }
-            FormatStatus::Skipped(reason) => {
-                output::status::dim(format!("  SKIP {} ({reason})", outcome.partition));
-            }
-            FormatStatus::Failed(e) => {
-                warn!(partition = %outcome.partition, error = %e, "format failed");
-                output::status::fail("FAIL", format!("{} ({e})", outcome.partition));
-            }
-        }
-    }
-
-    let failed = result.outcomes.iter().filter(|o| matches!(o.status, FormatStatus::Failed(_))).count();
+    let failed = output::format_display::print_format_results(&result);
     if failed > 0 {
         anyhow::bail!("format-data completed with {failed} failure(s)");
     }

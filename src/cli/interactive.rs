@@ -111,6 +111,16 @@ pub async fn run(scatter_path: &Path, exclude: &[String], clean: bool) -> Result
     )
     .await?;
 
+    if clean {
+        output::status::heading("Formatting data partitions");
+        let fmt_result = executor.format_data(0).await;
+        let fmt_failed = output::format_display::print_format_results(&fmt_result);
+        if fmt_failed > 0 {
+            anyhow::bail!("format-data failed with {fmt_failed} failure(s)");
+        }
+        output::status::blank();
+    }
+
     let pb = output::spinner::progress_bar(0);
     let result = executor.execute_plan(&plan, false, Some(&pb)).await;
     pb.finish_and_clear();
