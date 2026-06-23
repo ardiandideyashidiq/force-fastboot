@@ -9,7 +9,7 @@ use crate::flash::FlashExecutor;
 use crate::output;
 use crate::scatter_parser as sp;
 
-/// Grouped config for scatter operations. Avoids passing 14 individual arguments.
+/// Grouped config for scatter operations. Avoids passing arguments individually.
 #[expect(clippy::struct_excessive_bools)]
 struct ScatterConfig<'a> {
     scatter_path: &'a Path,
@@ -28,6 +28,7 @@ struct ScatterConfig<'a> {
     image_search: bool,
     allow_incomplete_slots: bool,
     clean: bool,
+    no_format: bool,
 }
 
 fn print_flash_help() -> Result<()> {
@@ -65,6 +66,7 @@ pub async fn run(
             ref group,
             ref exclude,
             clean,
+            no_format,
             ref firmware_dir,
             check_images,
             include_preloader,
@@ -85,7 +87,7 @@ pub async fn run(
                 && !json
             {
                 warn!("no --part/--group specified; interactive mode uses --mode dirty-flash (your --mode {mode:?} is ignored)");
-                return crate::cli::interactive::run(&scatter_path, exclude, clean).await;
+                return crate::cli::interactive::run(&scatter_path, exclude, clean, no_format).await;
             }
 
             let cfg = ScatterConfig {
@@ -101,6 +103,7 @@ pub async fn run(
                 exclude,
                 firmware_dir: firmware_dir.as_deref(),
                 clean,
+                no_format,
                 check_images,
                 include_preloader,
                 image_search,
@@ -200,8 +203,8 @@ async fn run_scatter(cfg: &ScatterConfig<'_>) -> Result<()> {
     )
     .await?;
 
-    // ── Optional: format data partitions (--clean) ──────────────────
-    if cfg.clean {
+    // ── Optional: format data partitions (--clean, not --no-format) ─
+    if cfg.clean && !cfg.no_format {
         output::status::heading("Formatting data partitions");
         let fmt_result = executor.format_data(0).await;
         let fmt_failed = output::format_display::print_format_results(&fmt_result);

@@ -75,7 +75,7 @@ async fn do_reboot(executor: &mut FlashExecutor, target: &str) -> Result<()> {
 /// Run the interactive flash flow: show plan, confirm, execute with progress,
 /// then reboot.
 #[allow(clippy::missing_panics_doc, clippy::missing_errors_doc)]
-pub async fn run(scatter_path: &Path, exclude: &[String], clean: bool) -> Result<()> {
+pub async fn run(scatter_path: &Path, exclude: &[String], clean: bool, no_format: bool) -> Result<()> {
     let parsed = sp::parse_scatter(scatter_path)
         .with_context(|| format!("failed to parse {}", scatter_path.display()))?;
 
@@ -91,6 +91,10 @@ pub async fn run(scatter_path: &Path, exclude: &[String], clean: bool) -> Result
             ..Default::default()
         },
     );
+
+    let do_format = clean
+        && !no_format
+        && prompts::confirm_yes("Format data partitions (userdata, cache, metadata)?")?;
 
     if !show_plan(&parsed, &plan)? {
         return Ok(());
@@ -111,7 +115,7 @@ pub async fn run(scatter_path: &Path, exclude: &[String], clean: bool) -> Result
     )
     .await?;
 
-    if clean {
+    if do_format {
         output::status::heading("Formatting data partitions");
         let fmt_result = executor.format_data(0).await;
         let fmt_failed = output::format_display::print_format_results(&fmt_result);

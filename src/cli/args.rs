@@ -101,6 +101,9 @@ pub enum FlashAction {
         /// Flash userdata as well (clean install)
         #[arg(long)]
         clean: bool,
+        /// Skip format-data step even when --clean is set
+        #[arg(long)]
+        no_format: bool,
     },
     /// Flash a Generic System Image (GSI) to the device.
     /// Handles vbmeta disable, userdata wipe, and mode transitions
