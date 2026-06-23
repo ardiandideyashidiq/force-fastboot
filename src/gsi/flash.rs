@@ -324,12 +324,14 @@ fn extract_tools() -> Result<TempDir> {
 /// mode where logical partitions are accessible.
 ///
 /// When the GSI overflows the system partition, the space is taken from
-/// product: product is shrunk to a minimal ext4 first so system can
-/// expand to fit the GSI.
+/// product: product is shrunk first to free super space, then system is
+/// expanded to fit the GSI. Both resizes are explicit because sparse-split
+/// flashing writes past the original partition boundary — the device
+/// rejects writes beyond the current size.
 async fn flash_system_and_product(
     executor: &mut FlashExecutor,
     image: &Path,
-    _gsi_expanded_size: u64,
+    gsi_expanded_size: u64,
     system_partition: &str,
     product_overflow_size: u64,
     tools_root: &Path,
@@ -342,11 +344,23 @@ async fn flash_system_and_product(
     if product_overflow_size > 0 {
         let product_partition = system_partition.replace("system", "product");
 
+        // Phase 1: shrink product to free super space, then expand system
+        let is_product_logical = executor.is_logical(&product_partition).await.unwrap_or(false);
+        let is_system_logical = executor.is_logical(system_partition).await.unwrap_or(false);
+
+        if is_product_logical {
+            debug!(partition = %product_partition, size = MINIMAL_PRODUCT_GSI_SIZE, "shrinking product to free super space");
+            executor.resize_logical_partition(&product_partition, MINIMAL_PRODUCT_GSI_SIZE).await?;
+        }
+        if is_system_logical {
+            debug!(partition = %system_partition, size = gsi_expanded_size, "expanding system to GSI size");
+            executor.resize_logical_partition(system_partition, gsi_expanded_size).await?;
+        }
+
+        // Phase 2: generate minimal product_gsi and flash both partitions
         report(GsiEvent::Step(GsiStep::GeneratingProductGsiImage));
         let (_tmpdir, product_image) = generate_product_gsi_image(tools_root)?;
 
-        // Flash product first; fastbootd auto-resizes product (frees space),
-        // then system auto-resizes to fit the GSI image.
         report(GsiEvent::Step(GsiStep::FlashingProductGsi));
         report(GsiEvent::Flashing {
             partition: product_partition.clone(),
