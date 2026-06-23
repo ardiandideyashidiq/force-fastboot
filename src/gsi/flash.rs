@@ -179,20 +179,12 @@ async fn transition_mode(
         return Ok(executor);
     }
 
-    let step = match target {
-        FastbootMode::Fastbootd => GsiStep::RebootingToFastbootd,
-        FastbootMode::Bootloader => GsiStep::RebootingToBootloader,
-    };
     let boot_target = match target {
         FastbootMode::Fastbootd => BootTarget::Fastboot,
         FastbootMode::Bootloader => BootTarget::Bootloader,
     };
 
     for attempt in 0..=1 {
-        report(GsiEvent::Step(step));
-        if target == FastbootMode::Fastbootd {
-            report(GsiEvent::Step(GsiStep::WaitingForFastbootd));
-        }
 
         let new_exec = executor
             .reboot_and_wait(boot_target)
@@ -220,15 +212,17 @@ async fn transition_mode(
 ///
 /// Takes ownership of the executor, runs the state machine, and returns the
 /// outcome. The workflow handles both bootloader-start and fastbootd-start
-/// scenarios, including vbmeta disable, userdata wipe, mode transitions,
-/// and the `product_gsi` fallback.
+/// scenarios with optimal ordering depending on the entry mode:
+///
+/// - **Bootloader first**: vbmeta disable → wipe → fastbootd → flash
+/// - **Fastbootd first**: flash → bootloader → vbmeta disable → wipe
 ///
 /// # Errors
 ///
 /// Returns an error if image validation, mode transitions, partition
 /// resolution, vbmeta flash, userdata wipe, or GSI flash fails.
 pub async fn execute_gsi_flash(
-    executor: FlashExecutor,
+    mut executor: FlashExecutor,
     image: &Path,
     mut report: impl FnMut(GsiEvent),
 ) -> Result<GsiFlashOutcome> {
@@ -244,16 +238,77 @@ pub async fn execute_gsi_flash(
     let tools_dir = extract_tools()?;
     let tools_root = tools_dir.path().to_path_buf();
 
-    let outcome = match mode {
+    match mode {
         FastbootMode::Bootloader => {
-            gsi_from_bootloader(executor, image, gsi_expanded_size, &tools_root, &mut report).await
+            // ── Phase 1: bootloader-only operations ────────────────
+            report(GsiEvent::Step(GsiStep::PreparingVbmetaFlash));
+            report(GsiEvent::Step(GsiStep::FlashingVbmeta));
+            executor.flash_empty_vbmeta().await?;
+
+            report(GsiEvent::Step(GsiStep::WipingUserdata));
+            executor.format_data(0).await;
+
+            // Transition to fastbootd where logical partitions are visible.
+            executor = transition_mode(executor, FastbootMode::Fastbootd, &mut report).await?;
+
+            // ── Phase 2: fastbootd-only operations ─────────────────
+            let (system_partition, system_size) = resolve_system_partition(&mut executor).await?;
+            report(GsiEvent::ResolvedPartition {
+                base: "system",
+                partition: system_partition.clone(),
+                size_bytes: system_size,
+            });
+
+            let product_overflow_size = product_gsi_overflow_size(system_size, gsi_expanded_size);
+            flash_system_and_product(
+                &mut executor,
+                image,
+                gsi_expanded_size,
+                &system_partition,
+                product_overflow_size,
+                &tools_root,
+                &mut report,
+            )
+            .await?;
         }
         FastbootMode::Fastbootd => {
-            gsi_from_fastbootd(executor, image, gsi_expanded_size, &tools_root, &mut report).await
+            // ── Phase 1: fastbootd-only operations ─────────────────
+            let (system_partition, system_size) = resolve_system_partition(&mut executor).await?;
+            report(GsiEvent::ResolvedPartition {
+                base: "system",
+                partition: system_partition.clone(),
+                size_bytes: system_size,
+            });
+
+            let product_overflow_size = product_gsi_overflow_size(system_size, gsi_expanded_size);
+            flash_system_and_product(
+                &mut executor,
+                image,
+                gsi_expanded_size,
+                &system_partition,
+                product_overflow_size,
+                &tools_root,
+                &mut report,
+            )
+            .await?;
+
+            // ── Phase 2: bootloader-only operations ────────────────
+            executor = transition_mode(executor, FastbootMode::Bootloader, &mut report).await?;
+
+            report(GsiEvent::Step(GsiStep::PreparingVbmetaFlash));
+            report(GsiEvent::Step(GsiStep::FlashingVbmeta));
+            executor.flash_empty_vbmeta().await?;
+
+            report(GsiEvent::Step(GsiStep::WipingUserdata));
+            executor.format_data(0).await;
         }
-    };
+    }
+
     drop(tools_dir);
-    outcome
+    report(GsiEvent::Step(GsiStep::GsiFlowComplete));
+    Ok(GsiFlashOutcome {
+        summary: GsiFlashSummary::default(),
+    })
 }
 
 fn extract_tools() -> Result<TempDir> {
@@ -262,108 +317,11 @@ fn extract_tools() -> Result<TempDir> {
     Ok(dir)
 }
 
-// ── Entry-point branches ─────────────────────────────────────────────
-
-async fn gsi_from_bootloader(
-    mut executor: FlashExecutor,
-    image: &Path,
-    gsi_expanded_size: u64,
-    tools_root: &Path,
-    report: &mut impl FnMut(GsiEvent),
-) -> Result<GsiFlashOutcome> {
-    report(GsiEvent::Step(GsiStep::StartingBootloaderPhase));
-
-    report(GsiEvent::Step(GsiStep::PreparingVbmetaFlash));
-    report(GsiEvent::Step(GsiStep::FlashingVbmeta));
-    executor.flash_empty_vbmeta().await?;
-
-    executor = transition_mode(executor, FastbootMode::Fastbootd, report).await?;
-
-    // Wipe userdata in fastbootd mode where logical partitions are visible.
-    report(GsiEvent::Step(GsiStep::WipingUserdata));
-    executor.format_data(0).await;
-
-    // Resolve system partition from fastbootd vars.
-    // Logical partitions (inside super) are only visible in fastbootd.
-    let (system_partition, system_size) = resolve_system_partition(&mut executor).await?;
-    report(GsiEvent::ResolvedPartition {
-        base: "system",
-        partition: system_partition.clone(),
-        size_bytes: system_size,
-    });
-
-    report(GsiEvent::Step(GsiStep::CheckingProductGsiFallback));
-    let product_overflow_size = product_gsi_overflow_size(system_size, gsi_expanded_size);
-
-    flash_in_fastbootd(
-        &mut executor,
-        image,
-        gsi_expanded_size,
-        &system_partition,
-        product_overflow_size,
-        tools_root,
-        report,
-    )
-    .await?;
-
-    report(GsiEvent::Step(GsiStep::GsiFlowComplete));
-    Ok(GsiFlashOutcome {
-        summary: GsiFlashSummary::default(),
-    })
-}
-
-async fn gsi_from_fastbootd(
-    mut executor: FlashExecutor,
-    image: &Path,
-    gsi_expanded_size: u64,
-    tools_root: &Path,
-    report: &mut impl FnMut(GsiEvent),
-) -> Result<GsiFlashOutcome> {
-    report(GsiEvent::Step(GsiStep::StartingFastbootdPhase));
-
-    // Resolve system partition directly from the device.
-    let (system_partition, system_size) = resolve_system_partition(&mut executor).await?;
-    report(GsiEvent::ResolvedPartition {
-        base: "system",
-        partition: system_partition.clone(),
-        size_bytes: system_size,
-    });
-
-    report(GsiEvent::Step(GsiStep::CheckingProductGsiFallback));
-    let product_overflow_size = product_gsi_overflow_size(system_size, gsi_expanded_size);
-
-    flash_in_fastbootd(
-        &mut executor,
-        image,
-        gsi_expanded_size,
-        &system_partition,
-        product_overflow_size,
-        tools_root,
-        report,
-    )
-    .await?;
-
-    executor = transition_mode(executor, FastbootMode::Bootloader, report).await?;
-
-    report(GsiEvent::Step(GsiStep::PreparingVbmetaFlash));
-    report(GsiEvent::Step(GsiStep::FlashingVbmeta));
-    executor.flash_empty_vbmeta().await?;
-
-    executor = transition_mode(executor, FastbootMode::Fastbootd, report).await?;
-
-    // Wipe userdata in fastbootd mode where logical partitions are visible.
-    report(GsiEvent::Step(GsiStep::WipingUserdata));
-    executor.format_data(0).await;
-
-    report(GsiEvent::Step(GsiStep::GsiFlowComplete));
-    Ok(GsiFlashOutcome {
-        summary: GsiFlashSummary::default(),
-    })
-}
-
 // ── Shared helpers ───────────────────────────────────────────────────
 
-async fn flash_in_fastbootd(
+/// Flash the system GSI and (if needed) product GSI, both in fastbootd
+/// mode where logical partitions are accessible.
+async fn flash_system_and_product(
     executor: &mut FlashExecutor,
     image: &Path,
     gsi_expanded_size: u64,
@@ -372,6 +330,8 @@ async fn flash_in_fastbootd(
     tools_root: &Path,
     report: &mut impl FnMut(GsiEvent),
 ) -> Result<()> {
+    report(GsiEvent::Step(GsiStep::CheckingProductGsiFallback));
+
     if product_overflow_size > 0 {
         report(GsiEvent::Step(GsiStep::GeneratingProductGsiImage));
         let (_tmpdir, product_image) = generate_product_gsi_image(tools_root, product_overflow_size)?;

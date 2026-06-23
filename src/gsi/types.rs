@@ -21,20 +21,14 @@ impl FastbootMode {
 /// Step in the GSI flash workflow (human-readable progress).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GsiStep {
-    StartingBootloaderPhase,
-    StartingFastbootdPhase,
     PreparingVbmetaFlash,
     FlashingVbmeta,
-    CheckingSystemPartition,
     CheckingProductGsiFallback,
     GeneratingProductGsiImage,
     FlashingProductGsi,
     ProductGsiFallbackNotNeeded,
     FlashingSystemGsi,
     WipingUserdata,
-    RebootingToBootloader,
-    RebootingToFastbootd,
-    WaitingForFastbootd,
     GsiFlowComplete,
 }
 
@@ -42,20 +36,14 @@ impl GsiStep {
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::StartingBootloaderPhase => "starting bootloader phase",
-            Self::StartingFastbootdPhase => "starting fastbootd phase",
             Self::PreparingVbmetaFlash => "preparing vbmeta flash",
             Self::FlashingVbmeta => "flashing vbmeta",
-            Self::CheckingSystemPartition => "checking system partition",
             Self::CheckingProductGsiFallback => "checking product GSI fallback",
             Self::GeneratingProductGsiImage => "generating product GSI image",
             Self::FlashingProductGsi => "flashing product GSI",
             Self::ProductGsiFallbackNotNeeded => "product GSI fallback not needed",
             Self::FlashingSystemGsi => "flashing system GSI",
             Self::WipingUserdata => "wiping userdata",
-            Self::RebootingToBootloader => "rebooting to bootloader",
-            Self::RebootingToFastbootd => "rebooting to fastbootd",
-            Self::WaitingForFastbootd => "waiting for fastbootd",
             Self::GsiFlowComplete => "GSI flow complete",
         }
     }
