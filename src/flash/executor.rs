@@ -391,10 +391,20 @@ impl FlashExecutor {
         debug!(%partition, file_size = file_len, max_download, "flashing image to partition");
 
         if size > max_download {
-            let chunk_size = u64::from(max_download);
-            let total_chunks = u64::from(size).div_ceil(chunk_size);
-            info!(%partition, size = file_len, %max_download, chunks = total_chunks, "image exceeds max download, splitting into chunks");
-            self.flash_large_partition(partition, path, file_len, max_download, progress_bar).await
+            // Route through sparse wrapping to avoid each flash overwriting from
+            // offset 0 (the fastbootd flash handler writes downloaded data at the
+            // start of the partition; raw chunked flash would only leave the last
+            // chunk intact).  Sparse wrapping encodes offset metadata so the device
+            // writes each split to the correct position, matching AOSP behaviour.
+            info!(%partition, file_len, %max_download, "image exceeds max download, wrapping in sparse format");
+            crate::flash::sparse::flash_sparse_wrapped(
+                &mut self.fb,
+                partition,
+                path,
+                file_len,
+                max_download,
+            )
+            .await
         } else {
             self.flash_raw_partition(partition, path, size, progress_bar).await
         }
@@ -470,62 +480,6 @@ impl FlashExecutor {
         }
         debug!(%partition, response = resp, "raw partition flash complete");
         Ok(resp)
-    }
-
-    /// Flash a partition by splitting into chunks that fit `max_download_size`.
-    /// Returns the device response message from the final chunk flash.
-    pub(crate) async fn flash_large_partition(
-        &mut self,
-        partition: &str,
-        path: &Path,
-        file_len: u64,
-        max_download: u32,
-        progress_bar: Option<&ProgressBar>,
-    ) -> Result<String> {
-        debug!(%partition, file_len, max_download, "starting chunked flash");
-        let chunk_size = u64::from(max_download);
-        let mut file = tokio::fs::File::open(path).await?;
-        let mut remaining = file_len;
-        let mut chunk_index = 0u32;
-        let mut buf = vec![0u8; 1024 * 1024];
-        let mut last_resp = String::new();
-
-        while remaining > 0 {
-            let this_chunk = u32::try_from(remaining.min(chunk_size)).unwrap_or(u32::MAX);
-            info!(%partition, chunk = chunk_index, size = this_chunk, "sending chunk");
-
-            let mut sender = self.fb.download(this_chunk).await?;
-            let mut to_send = u64::from(this_chunk);
-            while to_send > 0 {
-                let limit = buf.len().min(usize::try_from(to_send).unwrap_or(usize::MAX));
-                let n = file.read(&mut buf[..limit]).await?;
-                if n == 0 {
-                    return Err(FlashError::Io(std::io::Error::new(
-                        std::io::ErrorKind::UnexpectedEof,
-                        "unexpected EOF while streaming chunk",
-                    )));
-                }
-                sender.extend_from_slice(&buf[..n]).await?;
-                to_send = to_send.saturating_sub(n as u64);
-            }
-
-            sender.finish().await?;
-            last_resp = self.fb.flash(partition).await?;
-
-            remaining = remaining.saturating_sub(u64::from(this_chunk));
-
-            if let Some(pb) = progress_bar {
-                pb.inc(u64::from(this_chunk));
-            }
-
-            chunk_index += 1;
-        }
-        if let Some(pb) = progress_bar {
-            pb.set_position(file_len);
-        }
-
-        debug!(%partition, chunks = chunk_index, response = last_resp, "chunked flash complete");
-        Ok(last_resp)
     }
 }
 

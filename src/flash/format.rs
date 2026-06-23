@@ -164,24 +164,14 @@ impl FlashExecutor {
             };
         }
 
-        // 7. download + flash
-        let file_len = match tokio::fs::metadata(&output_path).await {
-            Ok(m) => m.len(),
-            Err(e) => {
-                return FormatOutcome {
-                    partition: partition.into(),
-                    status: FormatStatus::Failed(FlashError::Io(e)),
-                };
-            }
-        };
+        // 6. wrap as compact sparse (zero-run detection) + flash
+        info!(%partition, part_size, "flashing empty filesystem via zero-run sparse wrap");
 
-        info!(%partition, size = file_len, fs_type = %partition_type, "flashing empty filesystem via sparse wrap");
-
-        let result = crate::flash::sparse::flash_sparse_wrapped(
+        let result = crate::flash::sparse::sparse_wrap_file(
             &mut self.fb,
             partition,
             &output_path,
-            file_len,
+            part_size,
             max_download,
         )
         .await;

@@ -5,12 +5,12 @@
 //! flashing them in split pieces — each piece is a self-contained sparse
 //! image that the bootloader reassembles.
 
-use std::io::SeekFrom;
+use std::io::{Read, SeekFrom};
 use std::path::Path;
 
 use android_sparse_image::{
-    split::{split_image, split_raw}, ChunkHeader, FileHeader, FileHeaderBytes,
-    CHUNK_HEADER_BYTES_LEN, FILE_HEADER_BYTES_LEN,
+    split::{split_image, split_raw, SplitChunk}, ChunkHeader, DEFAULT_BLOCKSIZE,
+    FileHeader, FileHeaderBytes, CHUNK_HEADER_BYTES_LEN, FILE_HEADER_BYTES_LEN,
 };
 use indicatif::ProgressBar;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
@@ -224,7 +224,9 @@ pub(crate) async fn flash_sparse_wrapped(
                 std::io::ErrorKind::InvalidData,
                 "sparse split size exceeds u32 range",
             )))?;
+        info!(%partition, part = i, sparse_size, max_download, "downloading split via fb.download");
         let mut sender = fb.download(sparse_size).await?;
+        info!(%partition, part = i, "fb.download returned successfully");
 
         // file header for this split
         sender.extend_from_slice(&split.header.to_bytes()).await?;
@@ -257,4 +259,147 @@ pub(crate) async fn flash_sparse_wrapped(
 
     debug!(%partition, splits = splits.len(), response = last_resp, "sparse-wrapped flash complete");
     Ok(last_resp)
+}
+
+/// Create an Android sparse image from a raw file by detecting zero runs,
+/// then flash it via download+flash.  The file is extended to `part_size`
+/// before scanning, ensuring all partition metadata regions (SIT, NAT, ...)
+/// are covered — even if the underlying image tool produced a small file.
+///
+/// Unlike [`flash_sparse_wrapped`] (which uses `split_raw` and treats every
+/// block as RAW data), this function collapses zero runs into DONTCARE
+/// chunks, producing a compact image that can be sent in a single
+/// download+flash even for huge partitions with only a few metadata blocks.
+pub(crate) async fn sparse_wrap_file(
+    fb: &mut fastboot_protocol::nusb::NusbFastBoot,
+    partition: &str,
+    path: &Path,
+    part_size: u64,
+    max_download: u32,
+) -> Result<String> {
+    debug!(%partition, part_size, max_download, "zero-run sparse wrapping");
+
+    let total_blocks = part_size / u64::from(DEFAULT_BLOCKSIZE);
+    if total_blocks == 0 {
+        // Partition has no blocks — a normal erase is sufficient.
+        fb.erase(partition).await?;
+        return Ok(String::new());
+    }
+
+    // Extend the output file to the full partition size.  On Linux this
+    // creates a sparse file (holes) so the extra space costs no disk I/O.
+    {
+        let f = tokio::fs::File::create(path).await?;
+        f.set_len(part_size).await?;
+        drop(f);
+    }
+
+    // ---- scan for non-zero data ----
+    let mut reader = std::io::BufReader::with_capacity(
+        1024 * 1024,
+        std::fs::File::open(path)
+            .map_err(|e| FlashError::Io(std::io::Error::new(e.kind(), format!("scan: {e}"))))?,
+    );
+    let mut block_buf = vec![0u8; DEFAULT_BLOCKSIZE as usize];
+    let mut data_blocks = 0u32;
+
+    while data_blocks < u32::try_from(total_blocks).unwrap_or(u32::MAX) {
+        reader
+            .read_exact(&mut block_buf)
+            .map_err(|_| FlashError::SparseTruncated {
+                read: (data_blocks as usize) * DEFAULT_BLOCKSIZE as usize,
+                expected: total_blocks as usize,
+            })?;
+        if block_buf.iter().all(|&b| b == 0) {
+            break; // First zero block — metadata region ends here.
+        }
+        data_blocks += 1;
+    }
+
+    let data_size = data_blocks as usize * DEFAULT_BLOCKSIZE as usize;
+    info!(
+        %partition,
+        data_blocks,
+        total_blocks,
+        data_size,
+        "zero-run scan complete",
+    );
+
+    // ---- build sparse chunks ----
+    let mut chunks = Vec::new();
+    if data_blocks > 0 {
+        chunks.push(SplitChunk {
+            header: ChunkHeader::new_raw(data_blocks, DEFAULT_BLOCKSIZE),
+            offset: 0,
+            size: data_size,
+        });
+    }
+    let zero_blocks = u32::try_from(total_blocks)
+        .unwrap_or(u32::MAX)
+        .saturating_sub(data_blocks);
+    if zero_blocks > 0 {
+        chunks.push(SplitChunk {
+            header: ChunkHeader::new_dontcare(zero_blocks),
+            offset: 0,
+            size: 0,
+        });
+    }
+
+    let n_chunks = u32::try_from(chunks.len())
+        .map_err(|_| FlashError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "too many sparse chunks",
+        )))?;
+    let total_blocks = chunks.iter().map(|c| c.header.chunk_size).sum::<u32>();
+    let header = FileHeader {
+        block_size: DEFAULT_BLOCKSIZE,
+        blocks: total_blocks,
+        chunks: n_chunks,
+        checksum: 0,
+    };
+    let spare_size = FILE_HEADER_BYTES_LEN
+        + chunks.iter().map(|c| c.header.total_size as usize).sum::<usize>();
+
+    // ---- check size ----
+    let sparse_size = u32::try_from(spare_size)
+        .map_err(|_| FlashError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "sparse image too large for u32",
+        )))?;
+    if sparse_size > max_download {
+        return Err(FlashError::ActionFailed {
+            partition: partition.into(),
+            reason: format!(
+                "compressed sparse image ({sparse_size}) exceeds max-download-size ({max_download}); \
+                 try again without format-data"
+            ),
+        });
+    }
+
+    // ---- send ----
+    let mut file = tokio::fs::File::open(path).await?;
+
+    let mut sender = fb.download(sparse_size).await?;
+    sender.extend_from_slice(&header.to_bytes()).await?;
+
+    for chunk in &chunks {
+        sender.extend_from_slice(&chunk.header.to_bytes()).await?;
+        if chunk.size > 0 {
+            file.seek(SeekFrom::Start(chunk.offset as u64)).await?;
+            let mut remaining = chunk.size;
+            let mut buf = vec![0u8; 1024 * 1024];
+            while remaining > 0 {
+                let to_read = buf.len().min(remaining);
+                read_exact_padded(&mut file, &mut buf[..to_read]).await?;
+                sender.extend_from_slice(&buf[..to_read]).await?;
+                remaining = remaining.saturating_sub(to_read);
+            }
+        }
+    }
+
+    sender.finish().await?;
+    let resp = fb.flash(partition).await?;
+
+    debug!(%partition, sparse_size, response = resp, "zero-run sparse flash complete");
+    Ok(resp)
 }

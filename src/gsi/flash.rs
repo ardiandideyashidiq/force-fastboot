@@ -6,7 +6,7 @@ use anyhow::{bail, Context, Result};
 use tempfile::TempDir;
 use tokio::io::AsyncReadExt;
 use tokio::time::Duration;
-use tracing::debug;
+use tracing::{debug, info};
 
 use crate::flash::executor::{BootTarget, FlashExecutor};
 use crate::format::generator;
@@ -308,6 +308,7 @@ pub async fn execute_gsi_flash(
     report(GsiEvent::Step(GsiStep::GsiFlowComplete));
 
     // Reboot to system so the device boots the newly flashed GSI.
+    info!("rebooting to system");
     executor.reboot().await?;
 
     Ok(GsiFlashOutcome {
