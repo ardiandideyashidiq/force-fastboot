@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 use std::path::Path;
 
+use android_sparse_image::{FileHeader, FILE_HEADER_BYTES_LEN};
 use anyhow::{bail, Context, Result};
 use tempfile::TempDir;
+use tokio::io::AsyncReadExt;
 use tokio::time::{sleep, Duration};
 use tracing::debug;
 
@@ -25,6 +27,24 @@ fn detect_fastboot_mode(vars: &HashMap<String, String>) -> FastbootMode {
 
 const fn should_flash_product_gsi(system_partition_size: u64, gsi_expanded_size: u64) -> bool {
     gsi_expanded_size > system_partition_size
+}
+
+/// Read the expanded (unsparsed) size of a GSI image.
+///
+/// For raw images this is the file size.  For Android sparse images it reads
+/// the header and returns `total_blocks × block_size` — the actual size the
+/// image occupies on the partition after fastbootd expands it.
+async fn read_gsi_expanded_size(image: &Path) -> Result<u64> {
+    if crate::flash::sparse::is_sparse_image(image).await.unwrap_or(false) {
+        let mut file = tokio::fs::File::open(image).await?;
+        let mut header_bytes = [0u8; FILE_HEADER_BYTES_LEN];
+        file.read_exact(&mut header_bytes).await?;
+        let header = FileHeader::from_bytes(&header_bytes)
+            .map_err(|_| anyhow::anyhow!("failed to parse sparse file header"))?;
+        Ok(u64::from(header.blocks) * u64::from(header.block_size))
+    } else {
+        Ok(tokio::fs::metadata(image).await?.len())
+    }
 }
 
 /// Query partition size directly from the device via `getvar`.
@@ -199,10 +219,10 @@ pub async fn execute_gsi_flash(
 ) -> Result<GsiFlashOutcome> {
     let vars = executor.device_vars().clone();
     let mode = detect_fastboot_mode(&vars);
-    let image_size = tokio::fs::metadata(image)
+
+    let gsi_expanded_size = read_gsi_expanded_size(image)
         .await
-        .with_context(|| format!("GSI image not found: {}", image.display()))?
-        .len();
+        .with_context(|| format!("cannot determine expanded size of {}", image.display()))?;
 
     report(GsiEvent::ModeDetected(mode));
 
@@ -211,10 +231,10 @@ pub async fn execute_gsi_flash(
 
     let outcome = match mode {
         FastbootMode::Bootloader => {
-            gsi_from_bootloader(executor, image, image_size, &tools_root, &mut report).await
+            gsi_from_bootloader(executor, image, gsi_expanded_size, &tools_root, &mut report).await
         }
         FastbootMode::Fastbootd => {
-            gsi_from_fastbootd(executor, image, image_size, &tools_root, &mut report).await
+            gsi_from_fastbootd(executor, image, gsi_expanded_size, &tools_root, &mut report).await
         }
     };
     drop(tools_dir);
@@ -232,7 +252,7 @@ fn extract_tools() -> Result<TempDir> {
 async fn gsi_from_bootloader(
     mut executor: FlashExecutor,
     image: &Path,
-    image_size: u64,
+    gsi_expanded_size: u64,
     tools_root: &Path,
     report: &mut impl FnMut(GsiEvent),
 ) -> Result<GsiFlashOutcome> {
@@ -257,12 +277,12 @@ async fn gsi_from_bootloader(
     });
 
     report(GsiEvent::Step(GsiStep::CheckingProductGsiFallback));
-    let needs_product_gsi = should_flash_product_gsi(system_size, image_size);
+    let needs_product_gsi = should_flash_product_gsi(system_size, gsi_expanded_size);
 
     flash_in_fastbootd(
         &mut executor,
         image,
-        image_size,
+        gsi_expanded_size,
         &system_partition,
         needs_product_gsi,
         tools_root,
@@ -279,7 +299,7 @@ async fn gsi_from_bootloader(
 async fn gsi_from_fastbootd(
     mut executor: FlashExecutor,
     image: &Path,
-    image_size: u64,
+    gsi_expanded_size: u64,
     tools_root: &Path,
     report: &mut impl FnMut(GsiEvent),
 ) -> Result<GsiFlashOutcome> {
@@ -294,12 +314,12 @@ async fn gsi_from_fastbootd(
     });
 
     report(GsiEvent::Step(GsiStep::CheckingProductGsiFallback));
-    let needs_product_gsi = should_flash_product_gsi(system_size, image_size);
+    let needs_product_gsi = should_flash_product_gsi(system_size, gsi_expanded_size);
 
     flash_in_fastbootd(
         &mut executor,
         image,
-        image_size,
+        gsi_expanded_size,
         &system_partition,
         needs_product_gsi,
         tools_root,
@@ -329,7 +349,7 @@ async fn gsi_from_fastbootd(
 async fn flash_in_fastbootd(
     executor: &mut FlashExecutor,
     image: &Path,
-    image_size: u64,
+    gsi_expanded_size: u64,
     system_partition: &str,
     needs_product_gsi: bool,
     tools_root: &Path,
@@ -351,12 +371,13 @@ async fn flash_in_fastbootd(
         report(GsiEvent::Step(GsiStep::ProductGsiFallbackNotNeeded));
     }
 
+    let file_size = tokio::fs::metadata(image).await?.len();
     report(GsiEvent::Step(GsiStep::FlashingSystemGsi));
     report(GsiEvent::Flashing {
         partition: system_partition.to_string(),
-        size_bytes: image_size,
+        size_bytes: file_size,
     });
-    flash_gsi_system(executor, image, system_partition, image_size).await?;
+    flash_gsi_system(executor, image, system_partition, gsi_expanded_size).await?;
 
     Ok(())
 }
