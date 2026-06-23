@@ -289,7 +289,7 @@ impl FlashExecutor {
                 Ok(executor) => return Ok(executor),
                 Err(e) => {
                     if last_log.elapsed() > Duration::from_secs(5) {
-                        info!(
+                        warn!(
                             "waiting for fastboot device after reboot (error: {e}) ..."
                         );
                         last_log = std::time::Instant::now();
@@ -389,8 +389,6 @@ impl FlashExecutor {
         }
 
         debug!(%partition, file_size = file_len, max_download, "flashing image to partition");
-
-        self.fb.erase(partition).await?;
 
         if size > max_download {
             let chunk_size = u64::from(max_download);

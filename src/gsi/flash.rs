@@ -306,6 +306,10 @@ pub async fn execute_gsi_flash(
 
     drop(tools_dir);
     report(GsiEvent::Step(GsiStep::GsiFlowComplete));
+
+    // Reboot to system so the device boots the newly flashed GSI.
+    executor.reboot().await?;
+
     Ok(GsiFlashOutcome {
         summary: GsiFlashSummary::default(),
     })

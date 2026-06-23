@@ -133,9 +133,7 @@ pub(crate) async fn flash_sparse_image(
         pb.set_position(0);
     }
 
-    // ---- erase partition once, then flash each split ----
-    fb.erase(partition).await?;
-
+    // ---- flash each split (no erase — the flash command handles it) ----
     let mut last_resp = String::new();
     for (i, split) in splits.iter().enumerate() {
         debug!(%partition, part = i, "sending sparse split");
@@ -216,9 +214,7 @@ pub(crate) async fn flash_sparse_wrapped(
 
     let mut file = tokio::fs::File::open(path).await?;
 
-    // ---- erase partition once, then flash each split ----
-    fb.erase(partition).await?;
-
+    // ---- flash each split (no erase — the flash command handles it) ----
     let mut last_resp = String::new();
     for (i, split) in splits.iter().enumerate() {
         debug!(%partition, part = i, "sending sparse-wrapped split");
@@ -244,7 +240,11 @@ pub(crate) async fn flash_sparse_wrapped(
                 let mut buf = vec![0u8; 1024 * 1024];
                 while remaining > 0 {
                     let to_read = buf.len().min(remaining);
-                    read_exact_padded_or_truncate(&mut file, &mut buf[..to_read], chunk.size).await?;
+                    // Use plain read_exact_padded here (not the truncation-check
+                    // variant) because split_raw may create chunks that extend
+                    // past the end of the file for block alignment.  Zero-filling
+                    // the tail is correct.
+                    read_exact_padded(&mut file, &mut buf[..to_read]).await?;
                     sender.extend_from_slice(&buf[..to_read]).await?;
                     remaining = remaining.saturating_sub(to_read);
                 }
