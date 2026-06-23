@@ -238,7 +238,7 @@ fn fmt_duration(d: &std::time::Duration) -> String {
     } else {
         let m = d.as_secs() / 60;
         let s = d.as_secs() % 60;
-        format!("[{m}m {s:2}s]")
+        format!("[{m:>3}m {s:>2}s]")
     }
 }
 
