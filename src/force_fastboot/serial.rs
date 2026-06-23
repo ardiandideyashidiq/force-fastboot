@@ -105,20 +105,20 @@ pub fn open_with_permission_recovery(port: &str) -> Result<tokio_serial::SerialS
 ///
 /// # Errors
 ///
-/// Returns an error if serial port enumeration fails or the timeout (30s)
+/// Returns an error if serial port enumeration fails or the timeout (120s)
 /// is exceeded.
 pub async fn wait_for_preloader(
     check_fastboot: bool,
 ) -> Result<Option<String>> {
-    info!(check_fastboot, "waiting for preloader serial port (max 30s)");
+    info!(check_fastboot, "waiting for preloader serial port (max 120s)");
     let mut old = serial_ports();
     let mut iterations = 0u64;
 
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(120);
 
     loop {
         if tokio::time::Instant::now() >= deadline {
-            warn!("timed out waiting for preloader serial port after 30s");
+            warn!("timed out waiting for preloader serial port after 120s");
             return Err(Error::PreloaderTimeout);
         }
 

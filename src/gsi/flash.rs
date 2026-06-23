@@ -15,6 +15,7 @@ use super::types::{FastbootMode, GsiEvent, GsiFlashOutcome, GsiFlashSummary, Gsi
 
 const PRODUCT_GSI_BLOCK_SIZE: u64 = 4_096;
 const PRODUCT_GSI_UUID: &str = "cdd462dd-8dd0-4006-8a5a-94e5a70c2bc3";
+const MINIMAL_PRODUCT_GSI_SIZE: u64 = 64 * 1024 * 1024;
 
 fn detect_fastboot_mode(vars: &HashMap<String, String>) -> FastbootMode {
     match vars.get("is-userspace").map(String::as_str) {
@@ -85,14 +86,10 @@ async fn resolve_system_partition(executor: &mut FlashExecutor) -> Result<(Strin
     bail!("neither system_{slot} nor system found in device partitions");
 }
 
-fn generate_product_gsi_image(tools_dir: &Path, overflow_size: u64) -> Result<(TempDir, std::path::PathBuf)> {
+fn generate_product_gsi_image(tools_dir: &Path) -> Result<(TempDir, std::path::PathBuf)> {
     let dir = TempDir::new()?;
     let output = dir.path().join("product_gsi.img");
-
-    let blocks = overflow_size / PRODUCT_GSI_BLOCK_SIZE;
-    if blocks == 0 {
-        bail!("product_gsi overflow size {overflow_size} is too small for one block");
-    }
+    let blocks = MINIMAL_PRODUCT_GSI_SIZE / PRODUCT_GSI_BLOCK_SIZE;
 
     let mke2fs = tools_dir.join("mke2fs");
     let conf = tools_dir.join("mke2fs.conf");
@@ -124,40 +121,9 @@ async fn flash_gsi_system(
     executor: &mut FlashExecutor,
     image: &Path,
     system_partition: &str,
-    gsi_size: u64,
 ) -> Result<()> {
-    debug!(partition = %system_partition, gsi_size, "flashing GSI system image");
-
-    let is_logical = executor.is_logical(system_partition).await.unwrap_or(false);
-    if is_logical {
-        debug!(partition = %system_partition, "resizing logical partition");
-        executor
-            .resize_logical_partition(system_partition, gsi_size)
-            .await?;
-    }
-
+    debug!(partition = %system_partition, "flashing GSI system image");
     executor.flash_raw_image(system_partition, image).await?;
-
-    Ok(())
-}
-
-async fn flash_product_gsi(
-    executor: &mut FlashExecutor,
-    product_image: &Path,
-    product_partition: &str,
-    product_size: u64,
-) -> Result<()> {
-    debug!(partition = %product_partition, "flashing product GSI");
-
-    let is_logical = executor.is_logical(product_partition).await.unwrap_or(false);
-    if is_logical {
-        executor
-            .resize_logical_partition(product_partition, product_size)
-            .await?;
-    }
-
-    executor.flash_raw_image(product_partition, product_image).await?;
-
     Ok(())
 }
 
@@ -326,6 +292,10 @@ fn extract_tools() -> Result<TempDir> {
 
 /// Flash the system GSI and (if needed) product GSI, both in fastbootd
 /// mode where logical partitions are accessible.
+///
+/// When the GSI overflows the system partition, the space is taken from
+/// product: product is shrunk to a minimal ext4 first so system can
+/// expand to fit the GSI.
 async fn flash_system_and_product(
     executor: &mut FlashExecutor,
     image: &Path,
@@ -337,29 +307,49 @@ async fn flash_system_and_product(
 ) -> Result<()> {
     report(GsiEvent::Step(GsiStep::CheckingProductGsiFallback));
 
-    if product_overflow_size > 0 {
-        report(GsiEvent::Step(GsiStep::GeneratingProductGsiImage));
-        let (_tmpdir, product_image) = generate_product_gsi_image(tools_root, product_overflow_size)?;
+    let file_size = tokio::fs::metadata(image).await?.len();
 
+    if product_overflow_size > 0 {
         let product_partition = system_partition.replace("system", "product");
+        let is_product_logical = executor.is_logical(&product_partition).await.unwrap_or(false);
+        let is_system_logical = executor.is_logical(system_partition).await.unwrap_or(false);
+
+        // Phase 1: shrink product to free space, then expand system to GSI size
+        if is_product_logical {
+            debug!(partition = %product_partition, size = MINIMAL_PRODUCT_GSI_SIZE, "shrinking product to minimal");
+            executor.resize_logical_partition(&product_partition, MINIMAL_PRODUCT_GSI_SIZE).await?;
+        }
+        if is_system_logical {
+            debug!(partition = %system_partition, size = gsi_expanded_size, "expanding system to GSI size");
+            executor.resize_logical_partition(system_partition, gsi_expanded_size).await?;
+        }
+
+        // Phase 2: generate minimal product_gsi and flash both partitions
+        report(GsiEvent::Step(GsiStep::GeneratingProductGsiImage));
+        let (_tmpdir, product_image) = generate_product_gsi_image(tools_root)?;
+
+        report(GsiEvent::Step(GsiStep::FlashingSystemGsi));
+        report(GsiEvent::Flashing {
+            partition: system_partition.to_string(),
+            size_bytes: file_size,
+        });
+        executor.flash_raw_image(system_partition, image).await?;
 
         report(GsiEvent::Step(GsiStep::FlashingProductGsi));
         report(GsiEvent::Flashing {
             partition: product_partition.clone(),
-            size_bytes: product_overflow_size,
+            size_bytes: MINIMAL_PRODUCT_GSI_SIZE,
         });
-        flash_product_gsi(executor, &product_image, &product_partition, product_overflow_size).await?;
+        executor.flash_raw_image(&product_partition, &product_image).await?;
     } else {
         report(GsiEvent::Step(GsiStep::ProductGsiFallbackNotNeeded));
+        report(GsiEvent::Step(GsiStep::FlashingSystemGsi));
+        report(GsiEvent::Flashing {
+            partition: system_partition.to_string(),
+            size_bytes: file_size,
+        });
+        flash_gsi_system(executor, image, system_partition).await?;
     }
-
-    let file_size = tokio::fs::metadata(image).await?.len();
-    report(GsiEvent::Step(GsiStep::FlashingSystemGsi));
-    report(GsiEvent::Flashing {
-        partition: system_partition.to_string(),
-        size_bytes: file_size,
-    });
-    flash_gsi_system(executor, image, system_partition, gsi_expanded_size).await?;
 
     Ok(())
 }
