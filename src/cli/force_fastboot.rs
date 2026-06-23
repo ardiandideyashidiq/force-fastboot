@@ -30,7 +30,7 @@ pub async fn run() -> Result<()> {
 
     info!(%port, "found preloader");
 
-    let mut dev = serial::open_serial(&port)?;
+    let mut dev = serial::open_with_permission_recovery(&port)?;
     let mut count: u64 = 0;
     let start = Instant::now();
 
@@ -61,7 +61,7 @@ pub async fn run() -> Result<()> {
                 if let Some(new_port) = serial::wait_for_preloader(true).await? {
                     port = new_port;
                     debug!(%port, "reconnected after port loss");
-                    dev = serial::open_serial(&port)?;
+                    dev = serial::open_with_permission_recovery(&port)?;
                     continue;
                 }
 

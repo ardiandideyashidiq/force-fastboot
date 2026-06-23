@@ -16,3 +16,7 @@ pub mod error;
 pub mod fastboot;
 /// Serial-port scanning, opening, and preloader handshake waits.
 pub mod serial;
+/// Permission-checking helpers for serial port access.
+pub mod permissions;
+/// Linux udev rule management and group-adding helpers.
+pub mod udev;

@@ -1,6 +1,7 @@
 use super::error::Error;
 use super::error::Result;
 use super::fastboot::in_fastboot_mode;
+use super::{permissions, udev};
 use std::collections::HashSet;
 use tokio::time::{sleep, Duration};
 use tracing::{debug, info, trace, warn};
@@ -57,6 +58,47 @@ pub fn open_serial(port: &str) -> Result<tokio_serial::SerialStream> {
             source,
         })
         .inspect(|_| info!(%port, "serial port opened"))
+}
+
+/// Open a serial port with automatic permission recovery.
+///
+/// On permission denied, attempts to install udev rules and add the user
+/// to the dialout group before retrying.
+///
+/// # Errors
+///
+/// Returns an error if the port cannot be opened even after recovery
+/// attempts.
+pub fn open_with_permission_recovery(port: &str) -> Result<tokio_serial::SerialStream> {
+    match open_serial(port) {
+        Ok(stream) => return Ok(stream),
+        Err(err) => {
+            if !permissions::is_permission_error(&err) {
+                return Err(err);
+            }
+        }
+    }
+
+    warn!(%port, "permission denied — attempting recovery");
+
+    if udev::install_udev_rules() {
+        if let Ok(stream) = open_serial(port) {
+            info!(%port, "reconnected after udev rule install");
+            return Ok(stream);
+        }
+    }
+
+    if udev::add_user_to_group() {
+        if let Ok(stream) = open_serial(port) {
+            info!(%port, "reconnected after group add");
+            return Ok(stream);
+        }
+    }
+
+    udev::print_manual_guidance();
+
+    // Re-wrap the original error
+    open_serial(port)
 }
 
 /// Wait for a new preloader serial port to appear.
