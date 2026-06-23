@@ -14,6 +14,7 @@ use android_sparse_image::{
 };
 use indicatif::ProgressBar;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
+use tokio::time::{sleep, Duration};
 use tracing::{debug, info};
 
 use crate::flash::error::{FlashError, Result};
@@ -255,6 +256,8 @@ pub(crate) async fn flash_sparse_wrapped(
 
         sender.finish().await?;
         last_resp = fb.flash(partition).await?;
+        // Give fastbootd a moment to settle before the next download
+        sleep(Duration::from_millis(500)).await;
     }
 
     debug!(%partition, splits = splits.len(), response = last_resp, "sparse-wrapped flash complete");
