@@ -1,6 +1,5 @@
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 
 export function useTauriEvent<T = unknown>(
   eventName: string,
@@ -28,12 +27,4 @@ export function useTauriEvent<T = unknown>(
       unlisten?.();
     };
   }, [eventName]);
-}
-
-export function useTauriInvoke() {
-  const call = useCallback(async <T>(cmd: string, args?: Record<string, unknown>): Promise<T> => {
-    return tauriInvoke(cmd, args);
-  }, []);
-
-  return call;
 }

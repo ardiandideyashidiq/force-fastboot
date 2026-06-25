@@ -29,6 +29,7 @@ export default function ToolsTab() {
   const [scatterLoading, setScatterLoading] = useState(false);
   const [vbmetaLoading, setVbmetaLoading] = useState(false);
   const [formatLoading, setFormatLoading] = useState(false);
+  const [planLoading, setPlanLoading] = useState(false);
   const [formatFsType, setFormatFsType] = useState("f2fs");
   const [gsiPath, setGsiPath] = useState("");
   const [gsiLoading, setGsiLoading] = useState(false);
@@ -71,7 +72,12 @@ export default function ToolsTab() {
         ],
       });
       if (selected) {
-        setGsiPath(selected as string);
+        const path = selected as string;
+        if (!path.toLowerCase().endsWith(".img")) {
+          toast.error("Selected file is not a .img image");
+          return;
+        }
+        setGsiPath(path);
       }
     } catch (e) {
       toast.error(`File dialog error: ${e}`);
@@ -110,7 +116,7 @@ export default function ToolsTab() {
         imagePath: gsiPath,
         cleanTest: false,
       });
-      toast.success("GSI flash complete");
+      toast.success("Flashing complete");
     } catch (e) {
       toast.error(`GSI flash failed: ${e}`);
     }
@@ -126,20 +132,27 @@ export default function ToolsTab() {
     [scatterMeta],
   );
 
-  const handleExecutePlan = () => {
+  const handleExecutePlan = async () => {
     if (!scatterPath) return;
-    invoke("execute_plan", {
-      path: scatterPath,
-      options: {
-        mode: "selective",
-        storage: "auto",
-        parts: [],
-        groups: [],
-        firmware_dir: null,
-        check_images: false,
-        include_preloader: false,
-      },
-    });
+    setPlanLoading(true);
+    try {
+      await invoke("execute_plan", {
+        path: scatterPath,
+        options: {
+          mode: "selective",
+          storage: "auto",
+          parts: [],
+          groups: [],
+          firmware_dir: null,
+          check_images: false,
+          include_preloader: false,
+        },
+      });
+      toast.success("Flash plan executed");
+    } catch (e) {
+      toast.error(`Flash plan failed: ${e}`);
+    }
+    setPlanLoading(false);
   };
 
   return (
@@ -203,9 +216,9 @@ export default function ToolsTab() {
                   variant="default"
                   size="xs"
                   onClick={handleExecutePlan}
+                  disabled={planLoading}
                 >
-                  <Play size={12} className="mr-1" />
-                  Execute Flash Plan
+                  {planLoading ? <><LoaderCircle size={12} className="animate-spin" /> Executing...</> : <><Play size={12} className="mr-1" /> Execute Flash Plan</>}
                 </Button>
               </div>
             )}
@@ -220,7 +233,7 @@ export default function ToolsTab() {
           <div className="min-w-0">
             <p className="text-body font-medium text-foreground/90">GSI Flash</p>
             {gsiPath && (
-              <p className="text-caption font-mono text-muted-foreground truncate max-w-[14rem] max-sm:max-w-full">
+              <p className="text-caption font-mono text-muted-foreground truncate max-w-[20rem] max-sm:max-w-full">
                 {gsiPath}
               </p>
             )}
@@ -247,7 +260,12 @@ export default function ToolsTab() {
         <section className="panel-shell flex items-center justify-between gap-3 px-5 py-3">
           <div className="flex items-center gap-3 min-w-0">
             <HardDrive size={14} className="shrink-0 text-muted-foreground" />
-            <span className="text-body font-medium text-foreground/90">Format Data</span>
+            <div>
+              <p className="text-body font-medium text-foreground/90">Format Data</p>
+              <p className="text-caption text-muted-foreground/70 leading-tight">
+                {formatFsType.toUpperCase()}
+              </p>
+            </div>
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
             <Select value={formatFsType} onValueChange={(v) => v && setFormatFsType(v)}>

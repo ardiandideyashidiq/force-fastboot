@@ -20,6 +20,7 @@ interface ConfirmAction {
   title: string;
   description: string;
   confirmLabel?: string;
+  variant?: "destructive" | "default";
   onConfirm: () => void;
 }
 
@@ -30,7 +31,8 @@ interface MainTabProps {
 
 export default function MainTab({ device, onRefresh }: MainTabProps) {
   const [connecting, setConnecting] = useState(false);
-  const [locking, setLocking] = useState(false);
+  const [lockLoading, setLockLoading] = useState(false);
+  const [unlockLoading, setUnlockLoading] = useState(false);
   const [varName, setVarName] = useState("");
   const [varResult, setVarResult] = useState("");
   const [varLoading, setVarLoading] = useState(false);
@@ -51,7 +53,7 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
   };
 
   const handleLock = async () => {
-    setLocking(true);
+    setLockLoading(true);
     try {
       await invoke<string>("lock_bootloader");
       toast.success("Bootloader locked");
@@ -59,11 +61,11 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
     } catch (e) {
       toast.error(`Lock failed: ${e}`);
     }
-    setLocking(false);
+    setLockLoading(false);
   };
 
   const handleUnlock = async () => {
-    setLocking(true);
+    setUnlockLoading(true);
     try {
       await invoke<string>("unlock_bootloader");
       toast.success("Bootloader unlocked");
@@ -71,7 +73,7 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
     } catch (e) {
       toast.error(`Unlock failed: ${e}`);
     }
-    setLocking(false);
+    setUnlockLoading(false);
   };
 
   const handleSetSlot = async (slot: string) => {
@@ -85,7 +87,10 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
   };
 
   const handleGetVar = async () => {
-    if (!varName.trim()) return;
+    if (!varName.trim()) {
+      toast.error("Enter a variable name");
+      return;
+    }
     setVarLoading(true);
     try {
       const value = await invoke<string>("get_var", { name: varName.trim() });
@@ -108,7 +113,7 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
             <h2 className="text-body font-semibold text-foreground">
               Force Fastboot
             </h2>
-            <p className="mt-1 text-label text-muted-foreground leading-relaxed max-w-lg">
+            <p className="mt-1 text-label text-muted-foreground leading-normal max-w-lg">
               Force a MediaTek device into fastboot mode via preloader serial handshake.
             </p>
             <div className="mt-3 flex items-center gap-3">
@@ -120,6 +125,7 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
                     description:
                       "This will attempt to force your MediaTek device into fastboot mode via preloader serial handshake. Ensure the device is powered off and connected via USB.",
                     confirmLabel: "Force",
+                    variant: "default",
                     onConfirm: forceFastboot,
                   })
                 }
@@ -136,7 +142,7 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
         </div>
         {/* Connected device info strip */}
         {connected && (
-          <div className="animate-in fade-in slide-in-from-top-1 duration-200 border-t border-border/50 px-5 py-2.5 flex items-center gap-4 text-caption text-muted-foreground/80 bg-success/5">
+          <div className="animate-in fade-in slide-in-from-top-1 duration-200 border-t border-border/50 px-5 py-2.5 flex items-center gap-4 text-caption text-muted-foreground/80 bg-success/[0.08]">
             <span className="font-mono text-accent-brand/70">{device?.serial ?? "—"}</span>
             <span className="w-px h-3 bg-border/50" />
             <span>{vars.product ?? "—"}</span>
@@ -169,10 +175,9 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
                 onConfirm: handleLock,
               })
             }
-            disabled={locking || !connected}
+            disabled={lockLoading || !connected}
           >
-            <Lock size={12} className="mr-1" />
-            Lock
+            {lockLoading ? <><LoaderCircle size={12} className="animate-spin" /> Locking...</> : <><Lock size={12} className="mr-1" /> Lock</>}
           </Button>
           <Button
             variant="ghost"
@@ -186,10 +191,9 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
                 onConfirm: handleUnlock,
               })
             }
-            disabled={locking || !connected}
+            disabled={unlockLoading || !connected}
           >
-            <Unlock size={12} className="mr-1" />
-            Unlock
+            {unlockLoading ? <><LoaderCircle size={12} className="animate-spin" /> Unlocking...</> : <><Unlock size={12} className="mr-1" /> Unlock</>}
           </Button>
         </div>
       </section>
@@ -210,7 +214,7 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
               disabled={!connected}
               className={`rounded-none ${
                 vars["current-slot"] === slot
-                  ? "bg-accent-brand text-accent-brand-foreground hover:bg-accent-brand"
+                  ? "bg-accent-brand text-accent-brand-foreground hover:bg-accent-brand/90"
                   : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
               }`}
             >
@@ -250,7 +254,7 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
         </div>
         {varResult && (
           <div className="animate-in fade-in slide-in-from-top-1 duration-200 mt-2 flex items-start gap-2 rounded border border-border/50 bg-muted/30 px-2.5 py-1.5">
-            <code className="flex-1 font-mono text-label text-foreground/80 min-w-0">{varResult}</code>
+            <code className="flex-1 font-mono text-label text-foreground/80 min-w-0 break-all">{varResult}</code>
             <Button
               variant="ghost"
               size="icon-xs"
@@ -276,7 +280,7 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
           title={confirmDialog.title}
           description={confirmDialog.description}
           confirmLabel={confirmDialog.confirmLabel}
-          variant="destructive"
+          variant={confirmDialog.variant ?? "destructive"}
           onConfirm={confirmDialog.onConfirm}
         />
       )}

@@ -51,7 +51,7 @@ function App() {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "r" && !e.metaKey && !e.ctrlKey && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) {
+      if (e.key === "r" && !e.metaKey && !e.ctrlKey && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) && !(e.target instanceof HTMLElement && e.target.contentEditable === "true")) {
         fetchDevice();
       }
     };
