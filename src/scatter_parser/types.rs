@@ -189,7 +189,7 @@ impl ScatterFile {
 }
 
 /// Flash plan options.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct FlashPlanOptions {
     /// Flash planning mode.
     pub mode: Mode,
@@ -215,25 +215,6 @@ pub struct FlashPlanOptions {
     pub allow_incomplete_slots: bool,
     /// Include userdata in the flash plan.
     pub clean: bool,
-}
-
-impl Default for FlashPlanOptions {
-    fn default() -> Self {
-        Self {
-            mode: Mode::DryRun,
-            storage: StorageSelect::Auto,
-            parts: Vec::new(),
-            groups: Vec::new(),
-            exclude: Vec::new(),
-            firmware_dir: None,
-            package_root: None,
-            check_images: false,
-            image_search: false,
-            include_preloader: false,
-            allow_incomplete_slots: false,
-            clean: false,
-        }
-    }
 }
 
 /// Flash plan summary counts.

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt;
 use std::path::Path;
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
@@ -48,6 +49,12 @@ impl BootTarget {
             Self::Fastboot => "fastboot",
             Self::Recovery => "recovery",
         }
+    }
+}
+
+impl fmt::Display for BootTarget {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
     }
 }
 
@@ -245,26 +252,6 @@ impl FlashExecutor {
     /// Returns an error if the slot cannot be set.
     pub async fn set_active_slot(&mut self, slot: &str) -> Result<String> {
         self.fb.set_active(slot).await.map_err(FlashError::from)
-    }
-
-    /// Verify that the connected device matches the expected platform/project.
-    ///
-    /// # Errors
-    ///
-    /// Returns `FlashError::DeviceMismatch` if the device product does not match
-    /// the plan's platform.
-    pub async fn verify_device(&mut self, plan: &FlashPlan) -> Result<()> {
-        let product = self.fb.get_var("product").await?;
-        if let Some(ref platform) = plan.platform {
-            if product.to_lowercase() != platform.to_lowercase() {
-                return Err(FlashError::DeviceMismatch {
-                    expected: platform.clone(),
-                    actual: product,
-                });
-            }
-        }
-        debug!(%product, platform = ?plan.platform, "device identity verified");
-        Ok(())
     }
 
     /// Execute a flash plan. Skips failed actions and continues.

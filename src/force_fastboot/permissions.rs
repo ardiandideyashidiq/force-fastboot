@@ -20,26 +20,6 @@ pub fn is_permission_error(err: &dyn std::error::Error) -> bool {
     false
 }
 
-/// Returns `true` if the process is running as root (uid 0) on Unix.
-#[must_use]
-pub fn is_running_as_root() -> bool {
-    #[cfg(unix)]
-    {
-        std::process::Command::new("id")
-            .arg("-u")
-            .output()
-            .ok()
-            .filter(|o| o.status.success())
-            .and_then(|o| String::from_utf8(o.stdout).ok())
-            .is_some_and(|s| s.trim() == "0")
-    }
-
-    #[cfg(not(unix))]
-    {
-        false
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

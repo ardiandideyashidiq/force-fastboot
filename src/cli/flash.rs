@@ -9,24 +9,12 @@ use crate::flash::FlashExecutor;
 use crate::output;
 use crate::scatter_parser as sp;
 
-#[derive(Debug)]
-enum ScatterOutput {
-    Show { full_json: bool },
-    DryRun,
-    Execute,
-}
-
-#[derive(Debug)]
-enum CleanAction {
-    None,
-    Format,
-    CleanTest,
-}
-
 /// Grouped config for scatter operations.
 struct ScatterConfig<'a> {
     scatter_path: &'a Path,
-    output: ScatterOutput,
+    show: bool,
+    full_json: bool,
+    dry_run: bool,
     mode: sp::Mode,
     storage: sp::StorageSelect,
     parts: &'a [String],
@@ -38,7 +26,8 @@ struct ScatterConfig<'a> {
     include_preloader: bool,
     allow_incomplete_slots: bool,
     json: bool,
-    clean_action: CleanAction,
+    is_clean: bool,
+    is_clean_test: bool,
 }
 
 fn print_flash_help() -> Result<()> {
@@ -90,23 +79,7 @@ pub async fn run(
             };
             let scatter_path = p.clone();
 
-            let output = if show {
-                ScatterOutput::Show { full_json }
-            } else if dry_run {
-                ScatterOutput::DryRun
-            } else {
-                ScatterOutput::Execute
-            };
-
-            let clean_action = if clean_test {
-                CleanAction::CleanTest
-            } else if clean && !no_format {
-                CleanAction::Format
-            } else {
-                CleanAction::None
-            };
-
-            if matches!(output, ScatterOutput::Execute)
+            if !show && !dry_run
                 && mode == sp::Mode::Selective
                 && part.is_empty()
                 && group.is_empty()
@@ -118,7 +91,9 @@ pub async fn run(
 
             let cfg = ScatterConfig {
                 scatter_path: &scatter_path,
-                output,
+                show,
+                full_json,
+                dry_run,
                 mode,
                 storage,
                 parts: part,
@@ -130,7 +105,8 @@ pub async fn run(
                 include_preloader,
                 allow_incomplete_slots,
                 json,
-                clean_action,
+                is_clean: clean && !no_format || clean_test,
+                is_clean_test: clean_test,
             };
             run_scatter(&cfg).await?;
         }
@@ -157,14 +133,14 @@ pub async fn run(
 
 async fn run_scatter(cfg: &ScatterConfig<'_>) -> Result<()> {
     debug!(
-        scatter_path = %cfg.scatter_path.display(), ?cfg.output, ?cfg.mode,
+        scatter_path = %cfg.scatter_path.display(), show = cfg.show, dry_run = cfg.dry_run, ?cfg.mode,
         parts = %cfg.parts.join(","),
         "run_scatter entered",
     );
 
     // ── Mode 1: Show scatter metadata ────────────────────────────
-    if let ScatterOutput::Show { full_json } = cfg.output {
-        return show_scatter_metadata(cfg.scatter_path, full_json);
+    if cfg.show {
+        return show_scatter_metadata(cfg.scatter_path, cfg.full_json);
     }
 
     // ── Parse scatter and build plan (shared) ────────────────────
@@ -177,8 +153,8 @@ async fn run_scatter(cfg: &ScatterConfig<'_>) -> Result<()> {
         parsed.layouts.len(),
     );
 
-    let is_dry_run = matches!(cfg.output, ScatterOutput::DryRun);
-    let is_clean = matches!(cfg.clean_action, CleanAction::Format | CleanAction::CleanTest);
+    let is_dry_run = cfg.dry_run;
+    let is_clean = cfg.is_clean;
 
     let options = sp::FlashPlanOptions {
         mode: cfg.mode,
@@ -232,7 +208,7 @@ async fn run_scatter(cfg: &ScatterConfig<'_>) -> Result<()> {
     .await?;
 
     // ── Optional: format data partitions (--clean/--clean-test) ────
-    let is_clean_test = matches!(cfg.clean_action, CleanAction::CleanTest);
+    let is_clean_test = cfg.is_clean_test;
     if is_clean {
         output::status::heading("Formatting data partitions");
         let fmt_result = executor.format_data(0, is_clean_test, None).await;

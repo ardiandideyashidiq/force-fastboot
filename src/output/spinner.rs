@@ -29,11 +29,6 @@ pub fn succeed(pb: &ProgressBar) {
     pb.finish_and_clear();
 }
 
-/// Mark a spinner as failed and clear.
-pub fn fail(pb: &ProgressBar) {
-    pb.finish_and_clear();
-}
-
 /// Create a progress bar for flash/download operations.
 ///
 /// # Panics

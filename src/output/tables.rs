@@ -219,7 +219,8 @@ pub fn plan_skipped(plan: &FlashPlan) -> Option<String> {
 // ── Device info ──────────────────────────────────────────────────────
 
 #[must_use]
-pub fn device_info<S: std::hash::BuildHasher>(vars: &HashMap<String, String, S>) -> String {
+#[allow(clippy::implicit_hasher)]
+pub fn device_info(vars: &HashMap<String, String>) -> String {
     let rows: Vec<MetaRow> = vars
         .iter()
         .map(|(k, v)| MetaRow {
@@ -284,16 +285,6 @@ pub fn flash_result(result: &FlashResult) -> String {
     }
 
     lines.join("\n")
-}
-
-#[must_use]
-pub fn format_result(partition: &str, succeeded: usize) -> String {
-    let wiped = format!("(wiped: {succeeded})");
-    format!(
-        "{} {partition}  {}",
-        ok_colored("✓"),
-        dim_colored(&wiped),
-    )
 }
 
 #[cfg(test)]

@@ -200,7 +200,7 @@ impl FlashExecutor {
         }
     }
 
-    fn determine_fs_type<'a>(&self, partition: &'a str, partition_type: &str, fs_type_override: Option<FsType>) -> Result<FsType, FormatOutcome> {
+    fn determine_fs_type(partition: &str, partition_type: &str, fs_type_override: Option<FsType>) -> Result<FsType, FormatOutcome> {
         match (partition, fs_type_override) {
             ("userdata", Some(t)) => Ok(t),
             (_, _) => match FsType::from_partition_type(partition_type) {
@@ -271,7 +271,7 @@ impl FlashExecutor {
             };
         }
 
-        let fs_type = match self.determine_fs_type(partition, &partition_type, fs_type_override) {
+        let fs_type = match Self::determine_fs_type(partition, &partition_type, fs_type_override) {
             Ok(t) => t,
             Err(outcome) => return outcome,
         };

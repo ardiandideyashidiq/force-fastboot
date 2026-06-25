@@ -5,22 +5,12 @@ use crate::output::{self, spinner};
 
 /// Tracks GSI workflow progress via a `MultiProgress` when not verbose.
 /// When verbose, delegates to `tracing::info!` instead.
+#[derive(Default)]
 pub struct GsiProgress {
     current: Option<ProgressBar>,
 }
 
-impl Default for GsiProgress {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl GsiProgress {
-    #[must_use]
-    pub const fn new() -> Self {
-        Self { current: None }
-    }
-
     /// Report a GSI event. When `-v` is active, logs via `tracing::info!`.
     /// Otherwise, shows a spinner-based step tracker via `MultiProgress`.
     pub fn report(&mut self, event: &GsiEvent) {

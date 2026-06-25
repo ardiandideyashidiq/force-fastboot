@@ -120,16 +120,6 @@ fn generate_product_gsi_image(tools_dir: &Path) -> Result<(TempDir, std::path::P
     Ok((dir, output))
 }
 
-async fn flash_gsi_system(
-    executor: &mut FlashExecutor,
-    image: &Path,
-    system_partition: &str,
-) -> Result<()> {
-    debug!(partition = %system_partition, "flashing GSI system image");
-    executor.flash_raw_image(system_partition, image).await?;
-    Ok(())
-}
-
 /// Reboot the device to a target fastboot mode, wait for it to re-appear,
 /// re-fetch device variables, and verify the mode. Retries once on failure.
 ///
@@ -272,8 +262,8 @@ pub async fn execute_gsi_flash(
 
     report(GsiEvent::ModeDetected(mode));
 
-    let tools_dir = extract_tools()?;
-    let tools_root = tools_dir.path().to_path_buf();
+    let (tools_dir, tools_root) = generator::extract_format_tools()
+        .map_err(|e| anyhow::anyhow!("failed to extract format tools: {e}"))?;
 
     for (required_mode, stages) in plan_stage_groups(mode) {
         if detect_fastboot_mode(executor.device_vars()) != required_mode {
@@ -301,10 +291,10 @@ pub async fn execute_gsi_flash(
                         size_bytes: system_size,
                     });
 
-                    let overflow = GsiOverflow {
-                        expanded_size: gsi_expanded_size,
-                        product_overflow: product_gsi_overflow_size(system_size, gsi_expanded_size),
-                    };
+                    let overflow = (
+                        gsi_expanded_size,
+                        product_gsi_overflow_size(system_size, gsi_expanded_size),
+                    );
                     flash_system_and_product(
                         &mut executor,
                         image,
@@ -336,19 +326,6 @@ pub async fn execute_gsi_flash(
     })
 }
 
-fn extract_tools() -> Result<TempDir> {
-    let (dir, _root) = generator::extract_format_tools()
-        .map_err(|e| anyhow::anyhow!("failed to extract format tools: {e}"))?;
-    Ok(dir)
-}
-
-// ── Shared helpers ───────────────────────────────────────────────────
-
-struct GsiOverflow {
-    expanded_size: u64,
-    product_overflow: u64,
-}
-
 /// Flash the system GSI and (if needed) product GSI, both in fastbootd
 /// mode where logical partitions are accessible.
 ///
@@ -360,7 +337,7 @@ struct GsiOverflow {
 async fn flash_system_and_product(
     executor: &mut FlashExecutor,
     image: &Path,
-    overflow: GsiOverflow,
+    overflow: (u64, u64),
     system_partition: &str,
     tools_root: &Path,
     cancel_token: Option<&Arc<AtomicBool>>,
@@ -371,7 +348,7 @@ async fn flash_system_and_product(
 
     let file_size = tokio::fs::metadata(image).await?.len();
 
-    if overflow.product_overflow > 0 {
+    if overflow.1 > 0 {
         let product_partition = system_partition.replace("system", "product");
 
         // Phase 1: shrink product to free super space, then expand system
@@ -384,8 +361,8 @@ async fn flash_system_and_product(
             executor.resize_logical_partition(&product_partition, MINIMAL_PRODUCT_GSI_SIZE).await?;
         }
         if is_system_logical {
-            debug!(partition = %system_partition, size = overflow.expanded_size, "expanding system to GSI size");
-            executor.resize_logical_partition(system_partition, overflow.expanded_size).await?;
+            debug!(partition = %system_partition, size = overflow.0, "expanding system to GSI size");
+            executor.resize_logical_partition(system_partition, overflow.0).await?;
         }
 
         // Phase 2: generate minimal product_gsi and flash both partitions
@@ -416,7 +393,8 @@ async fn flash_system_and_product(
             partition: system_partition.to_string(),
             size_bytes: file_size,
         });
-        flash_gsi_system(executor, image, system_partition).await?;
+        debug!(partition = %system_partition, "flashing GSI system image");
+        executor.flash_raw_image(system_partition, image).await?;
     }
 
     Ok(())
