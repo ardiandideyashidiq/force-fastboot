@@ -8,7 +8,25 @@ permissions:
   contents: write
 
 jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install system deps
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: cargo test
+
+      - run: cargo clippy --all-targets --all-features --locked -- -D warnings
+
   build:
+    needs: [check]
     strategy:
       matrix:
         include:
