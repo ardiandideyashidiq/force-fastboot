@@ -75,12 +75,12 @@ export default function AppLayout({
   };
 
   return (
-    <div className="grid h-dvh w-dvw overflow-hidden" style={{ gridTemplateColumns: "auto 1fr" }}>
+    <div
+      className="grid h-dvh w-dvw overflow-hidden"
+      style={{ gridTemplateColumns: sidebarOpen ? `${SIDEBAR_OPEN}px 1fr` : `${SIDEBAR_COLLAPSED}px 1fr` }}
+    >
       {/* Sidebar */}
-      <aside
-        className="flex flex-col border-r border-sidebar-border bg-sidebar overflow-hidden transition-[width] duration-200 ease-out"
-        style={{ width: sidebarOpen ? SIDEBAR_OPEN : SIDEBAR_COLLAPSED }}
-      >
+      <aside className="flex flex-col border-r border-sidebar-border bg-sidebar overflow-hidden">
         {/* Brand + collapse */}
         <div className="flex items-center justify-between shrink-0 px-3 pt-4 pb-3 border-b border-accent-brand/15">
           {sidebarOpen ? (

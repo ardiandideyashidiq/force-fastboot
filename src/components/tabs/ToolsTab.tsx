@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -116,6 +116,15 @@ export default function ToolsTab() {
     setGsiLoading(false);
   };
 
+  const partitionCount = useMemo(
+    () => scatterMeta ? Object.values(scatterMeta.layouts).reduce((sum, parts) => sum + parts.length, 0) : 0,
+    [scatterMeta],
+  );
+  const layoutNames = useMemo(
+    () => scatterMeta ? Object.keys(scatterMeta.layouts) : [],
+    [scatterMeta],
+  );
+
   const handleExecutePlan = () => {
     if (!scatterPath) return;
     invoke("execute_plan", {
@@ -175,24 +184,16 @@ export default function ToolsTab() {
                     <span className="text-muted-foreground">Format</span>
                     <p className="font-medium">{scatterMeta.format}</p>
                   </div>
-                  {(() => {
-                    const partitionCount = Object.values(scatterMeta.layouts).reduce(
-                      (sum, parts) => sum + parts.length, 0,
-                    );
-                    const layoutNames = Object.keys(scatterMeta.layouts);
-                    return (
-                      <>
-                        <div>
-                          <span className="text-muted-foreground">Partitions</span>
-                          <p className="font-medium">{partitionCount}</p>
-                        </div>
-                        <div className="col-span-2">
-                          <span className="text-muted-foreground">Layouts</span>
-                          <p className="font-medium truncate">{layoutNames.join(", ")}</p>
-                        </div>
-                      </>
-                    );
-                  })()}
+                  <>
+                    <div>
+                      <span className="text-muted-foreground">Partitions</span>
+                      <p className="font-medium">{partitionCount}</p>
+                    </div>
+                    <div className="col-span-2">
+                      <span className="text-muted-foreground">Layouts</span>
+                      <p className="font-medium truncate">{layoutNames.join(", ")}</p>
+                    </div>
+                  </>
                 </div>
                 <Button
                   variant="default"
