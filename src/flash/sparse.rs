@@ -17,6 +17,7 @@ use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tracing::{debug, info};
 
 use crate::flash::error::{FlashError, Result};
+use crate::flash::transport::FlashTransport;
 
 /// Crypto footer offset used by legacy FDE (Full Disk Encryption).
 /// TWRP preserves this space during mkfs and wipes it afterward
@@ -83,7 +84,7 @@ pub(crate) async fn is_sparse_image(path: &Path) -> Result<bool> {
 /// download+flash transaction.  The bootloader reassembles the pieces.
 /// Returns the device response message from the final split flash.
 pub(crate) async fn flash_sparse_image(
-    fb: &mut fastboot_protocol::nusb::NusbFastBoot,
+    fb: &mut impl FlashTransport,
     partition: &str,
     path: &Path,
     file_len: u64,
@@ -199,7 +200,7 @@ pub(crate) async fn flash_sparse_image(
 /// on-device, avoiding transmission of large zero-filled regions.
 /// Returns the device response message from the final split flash.
 pub(crate) async fn flash_sparse_wrapped(
-    fb: &mut fastboot_protocol::nusb::NusbFastBoot,
+    fb: &mut impl FlashTransport,
     partition: &str,
     path: &Path,
     file_len: u64,
@@ -283,7 +284,7 @@ pub(crate) async fn flash_sparse_wrapped(
 /// If `footer_size` is zero, `effective_size == part_size` and the entire
 /// partition is covered by the scan.
 pub(crate) async fn sparse_wrap_file(
-    fb: &mut fastboot_protocol::nusb::NusbFastBoot,
+    fb: &mut impl FlashTransport,
     partition: &str,
     path: &Path,
     part_size: u64,
@@ -610,8 +611,10 @@ fn build_split_chunks(
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
     use super::read_exact_padded;
     use tokio::io::AsyncWriteExt;
+    use crate::flash::sparse::is_sparse_image;
 
     #[test]
     fn read_exact_padded_should_zero_fill_short_file() {
@@ -646,5 +649,22 @@ mod tests {
             u64::from(android_sparse_image::DEFAULT_BLOCKSIZE) > 0,
             "block size must be positive",
         );
+    }
+
+    #[tokio::test]
+    async fn is_sparse_image_detects_magic() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("sparse.img");
+        let magic = 0xED26_FF3Au32.to_le_bytes();
+        std::fs::write(&path, magic).unwrap();
+        assert!(is_sparse_image(Path::new(&path)).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn is_sparse_image_rejects_raw() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("raw.img");
+        std::fs::write(&path, b"this is not a sparse image").unwrap();
+        assert!(!is_sparse_image(Path::new(&path)).await.unwrap());
     }
 }

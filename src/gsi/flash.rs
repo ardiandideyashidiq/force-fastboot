@@ -12,6 +12,7 @@ use tokio::time::Duration;
 use tracing::{debug, info};
 
 use crate::flash::executor::{BootTarget, FlashExecutor};
+use crate::flash::transport::FlashTransport;
 use crate::format::generator;
 
 use super::types::{FastbootMode, GsiEvent, GsiFlashOutcome, GsiFlashSummary, GsiStep};
@@ -61,7 +62,7 @@ async fn read_gsi_expanded_size(image: &Path) -> Result<u64> {
 }
 
 /// Query partition size directly from the device via `getvar`.
-async fn query_partition_size(executor: &mut FlashExecutor, name: &str) -> Option<u64> {
+async fn query_partition_size<T: FlashTransport>(executor: &mut FlashExecutor<T>, name: &str) -> Option<u64> {
     let resp = executor
         .get_var(&format!("partition-size:{name}"))
         .await
@@ -73,7 +74,7 @@ async fn query_partition_size(executor: &mut FlashExecutor, name: &str) -> Optio
 
 /// Resolve system partition name and size by probing the device directly.
 /// Tries `system_{slot}` first, then bare `system`.
-async fn resolve_system_partition(executor: &mut FlashExecutor) -> Result<(String, u64)> {
+async fn resolve_system_partition<T: FlashTransport>(executor: &mut FlashExecutor<T>) -> Result<(String, u64)> {
     let slot = executor
         .get_var("current-slot")
         .await
@@ -460,5 +461,26 @@ mod tests {
                 "should accept '{val}' as fastbootd"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn gsi_flash_rejects_missing_image() {
+        let result = read_gsi_expanded_size(Path::new("/nonexistent/gsi.img")).await;
+        assert!(result.is_err(), "expected error for missing image");
+    }
+
+    #[tokio::test]
+    async fn resolve_system_partition_uses_slot() {
+        use crate::flash::mock::MockTransport;
+        let fb = MockTransport::new().with_get_var("current-slot", "b");
+        let mut vars = HashMap::new();
+        vars.insert("is-userspace".to_string(), "yes".to_string());
+        let mut executor = FlashExecutor::new(fb, vars);
+        // Mock does not have partition-size for system_b → should fail
+        let result = resolve_system_partition(&mut executor).await;
+        assert!(result.is_err(), "expected error when no partition-size configured");
+        let err = result.unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(msg.contains("system"), "error should mention system partition, got: {msg}");
     }
 }

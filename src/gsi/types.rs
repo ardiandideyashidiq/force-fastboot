@@ -99,6 +99,7 @@ pub struct GsiFlashSummary {
 }
 
 /// Outcome of a GSI flash operation.
+#[derive(Debug)]
 pub struct GsiFlashOutcome {
     pub summary: GsiFlashSummary,
 }
