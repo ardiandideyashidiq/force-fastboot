@@ -1,56 +1,33 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  RefreshCw,
-  Zap,
-  Lock,
-  Unlock,
-  Cpu,
-  Search,
-  Smartphone,
-} from "lucide-react";
+import { Zap, Lock, Unlock, Cpu, Search } from "lucide-react";
+import type { DeviceInfo } from "@/types/api";
 
-interface DeviceInfo {
-  connected: boolean;
-  serial: string | null;
-  vars: Record<string, string>;
+interface MainTabProps {
+  device: DeviceInfo | null;
+  onRefresh: () => Promise<void>;
 }
 
-export default function MainTab() {
-  const [device, setDevice] = useState<DeviceInfo | null>(null);
-  const [loading, setLoading] = useState(false);
+export default function MainTab({ device, onRefresh }: MainTabProps) {
   const [connecting, setConnecting] = useState(false);
   const [locking, setLocking] = useState(false);
   const [varName, setVarName] = useState("");
   const [varResult, setVarResult] = useState("");
   const [varLoading, setVarLoading] = useState(false);
 
-  const fetchDevice = useCallback(async () => {
-    setLoading(true);
-    try {
-      const info = await invoke<DeviceInfo>("get_device_info");
-      setDevice(info);
-    } catch (e) {
-      console.error("Failed to get device info:", e);
-    }
-    setLoading(false);
-  }, []);
-
-  useEffect(() => {
-    fetchDevice();
-  }, [fetchDevice]);
+  const connected = device?.connected ?? false;
+  const vars = device?.vars ?? {};
 
   const forceFastboot = async () => {
     setConnecting(true);
     try {
       await invoke("force_fastboot");
-      await fetchDevice();
+      await onRefresh();
     } catch (e) {
       console.error("Force fastboot failed:", e);
     }
@@ -62,7 +39,7 @@ export default function MainTab() {
     try {
       const resp = await invoke<string>("lock_bootloader");
       console.log("Lock response:", resp);
-      await fetchDevice();
+      await onRefresh();
     } catch (e) {
       console.error("Lock failed:", e);
     }
@@ -74,7 +51,7 @@ export default function MainTab() {
     try {
       const resp = await invoke<string>("unlock_bootloader");
       console.log("Unlock response:", resp);
-      await fetchDevice();
+      await onRefresh();
     } catch (e) {
       console.error("Unlock failed:", e);
     }
@@ -85,7 +62,7 @@ export default function MainTab() {
     try {
       const resp = await invoke<string>("set_active_slot", { slot });
       console.log(`Slot ${slot} set:`, resp);
-      await fetchDevice();
+      await onRefresh();
     } catch (e) {
       console.error(`Set slot ${slot} failed:`, e);
     }
@@ -103,56 +80,8 @@ export default function MainTab() {
     setVarLoading(false);
   };
 
-  const connected = device?.connected ?? false;
-  const vars = device?.vars ?? {};
-
   return (
     <div className="space-y-6">
-      {/* Device card */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="flex items-center gap-2">
-            <Smartphone size={20} />
-            Device
-          </CardTitle>
-          <div className="flex items-center gap-2">
-            <Badge variant={connected ? "default" : "secondary"}>
-              {connected ? "Connected" : "Disconnected"}
-            </Badge>
-            <Button variant="outline" size="icon-sm" onClick={fetchDevice} disabled={loading}>
-              <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {connected ? (
-            <div className="grid grid-cols-2 gap-3 text-sm">
-              <div>
-                <span className="text-muted-foreground">Serial:</span>{" "}
-                {device?.serial ?? "—"}
-              </div>
-              <div>
-                <span className="text-muted-foreground">Product:</span>{" "}
-                {vars.product ?? "—"}
-              </div>
-              <div>
-                <span className="text-muted-foreground">Version:</span>{" "}
-                {vars.version ?? "—"}
-              </div>
-              <div>
-                <span className="text-muted-foreground">Slot:</span>{" "}
-                {vars["current-slot"] ?? "—"}
-              </div>
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              No fastboot device detected. Connect your device and try Force
-              Fastboot.
-            </p>
-          )}
-        </CardContent>
-      </Card>
-
       {/* Force fastboot */}
       <Card>
         <CardHeader>
