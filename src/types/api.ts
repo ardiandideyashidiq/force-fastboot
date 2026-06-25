@@ -60,11 +60,11 @@ export interface FlashPlan {
 export interface ScatterFile {
   path: string;
   format: string;
+  text_hash: string;
   platform: string | null;
   project: string | null;
-  chipset: string | null;
-  layout_names: string[];
-  partition_count: number;
+  general: unknown;
+  layouts: Record<string, unknown[]>;
   warnings: string[];
   errors: string[];
 }

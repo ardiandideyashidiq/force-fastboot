@@ -128,34 +128,41 @@ export default function ToolsTab() {
           {scatterLoading && (
             <p className="text-sm text-muted-foreground">Parsing...</p>
           )}
-          {scatterMeta && (
-            <div className="grid grid-cols-2 gap-2 text-sm">
-              <div>
-                <span className="text-muted-foreground">Platform:</span>{" "}
-                {scatterMeta.platform ?? "—"}
+          {scatterMeta && (() => {
+            const layoutNames = Object.keys(scatterMeta.layouts);
+            const partitionCount = Object.values(scatterMeta.layouts).reduce(
+              (sum, parts) => sum + parts.length, 0,
+            );
+            const chipset = scatterMeta.platform ?? scatterMeta.project ?? null;
+            return (
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <div>
+                  <span className="text-muted-foreground">Platform:</span>{" "}
+                  {scatterMeta.platform ?? "—"}
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Project:</span>{" "}
+                  {scatterMeta.project ?? "—"}
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Chipset:</span>{" "}
+                  {chipset ?? "—"}
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Partitions:</span>{" "}
+                  {partitionCount}
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Format:</span>{" "}
+                  {scatterMeta.format}
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Layouts:</span>{" "}
+                  {layoutNames.join(", ")}
+                </div>
               </div>
-              <div>
-                <span className="text-muted-foreground">Project:</span>{" "}
-                {scatterMeta.project ?? "—"}
-              </div>
-              <div>
-                <span className="text-muted-foreground">Chipset:</span>{" "}
-                {scatterMeta.chipset ?? "—"}
-              </div>
-              <div>
-                <span className="text-muted-foreground">Partitions:</span>{" "}
-                {scatterMeta.partition_count}
-              </div>
-              <div>
-                <span className="text-muted-foreground">Format:</span>{" "}
-                {scatterMeta.format}
-              </div>
-              <div>
-                <span className="text-muted-foreground">Layouts:</span>{" "}
-                {scatterMeta.layout_names.join(", ")}
-              </div>
-            </div>
-          )}
+            );
+          })()}
           {scatterMeta && (
             <Button
               variant="default"

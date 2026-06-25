@@ -9,10 +9,31 @@ use pawflash_core::scatter_parser as sp;
 use serde::Serialize;
 use tauri::ipc::Channel;
 use tauri::Emitter;
+use tracing::{debug, info, trace, warn};
+use tracing_subscriber::prelude::*;
+use tracing_subscriber::{fmt, registry::Registry, EnvFilter};
+
+// ── Logging init ──────────────────────────────────────────────────────
+
+fn init_logging() {
+  let filter = EnvFilter::try_from_default_env()
+    .unwrap_or_else(|_| EnvFilter::new("info"));
+  let subscriber = Registry::default()
+    .with(filter)
+    .with(
+      fmt::Layer::new()
+        .with_writer(std::io::stderr)
+        .with_ansi(true)
+        .with_target(true)
+        .with_level(true)
+        .compact(),
+    );
+  let _ = tracing::subscriber::set_global_default(subscriber);
+}
 
 // ── Event types ───────────────────────────────────────────────────────
 
-#[derive(Clone, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(tag = "event", content = "data")]
 pub enum ProgressEvent {
   Phase { phase: String, message: String },
@@ -33,10 +54,11 @@ pub struct DeviceInfo {
   pub vars: HashMap<String, String>,
 }
 
-// ── Helper ────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────
 
-fn send<T: Serialize + Clone>(ch: &Channel<T>, msg: T) {
-  let _ = ch.send(msg);
+fn send_progress(ch: &Channel<ProgressEvent>, event: ProgressEvent) {
+  trace!(?event, "progress");
+  let _ = ch.send(event);
 }
 
 fn map_flash_result(result: &pawflash_core::flash::results::FormatDataResult) -> Vec<ProgressEvent> {
@@ -57,51 +79,65 @@ fn map_flash_result(result: &pawflash_core::flash::results::FormatDataResult) ->
 
 // ── Commands ──────────────────────────────────────────────────────────
 
+#[tracing::instrument(skip_all)]
 #[tauri::command]
 async fn get_device_info() -> Result<DeviceInfo, String> {
   let Ok(mut executor) = FlashExecutor::connect().await else {
+    info!("no fastboot device found");
     return Ok(DeviceInfo { connected: false, serial: None, vars: HashMap::new() });
   };
-  let vars = executor.get_all_vars().await.map_err(|e| e.to_string())?;
+  let vars = executor.get_all_vars().await.map_err(|e| {
+    warn!(error = %e, "get_all_vars failed");
+    e.to_string()
+  })?;
   let serial = vars.get("serial").cloned();
-  Ok(DeviceInfo { connected: true, serial, vars })
+  let connected = true;
+  info!(connected, serial = serial.as_deref().unwrap_or("?"), "device info retrieved");
+  Ok(DeviceInfo { connected, serial, vars })
 }
 
+#[tracing::instrument(skip(app, on_event))]
 #[tauri::command]
 async fn force_fastboot(app: tauri::AppHandle, on_event: Channel<ProgressEvent>) -> Result<(), String> {
-  send(&on_event, ProgressEvent::Phase { phase: "connecting".into(), message: "Checking fastboot mode...".into() });
+  send_progress(&on_event, ProgressEvent::Phase { phase: "connecting".into(), message: "Checking fastboot mode...".into() });
 
   if pawflash_core::force_fastboot::fastboot::in_fastboot_mode().await {
-    send(&on_event, ProgressEvent::Done { ok: true, detail: "Already in fastboot mode".into() });
+    info!("already in fastboot mode");
+    send_progress(&on_event, ProgressEvent::Done { ok: true, detail: "Already in fastboot mode".into() });
     let _ = app.emit("fastboot-devices", ());
     return Ok(());
   }
 
-  send(&on_event, ProgressEvent::Phase { phase: "waiting".into(), message: "Waiting for preloader...".into() });
+  send_progress(&on_event, ProgressEvent::Phase { phase: "waiting".into(), message: "Waiting for preloader...".into() });
   let port = pawflash_core::force_fastboot::serial::wait_for_preloader(false)
     .await
-    .map_err(|e| e.to_string())?
-    .ok_or("No preloader device found")?;
+    .map_err(|e| { warn!(error = %e, "wait_for_preloader failed"); e.to_string() })?
+    .ok_or_else(|| { warn!("no preloader device found"); "No preloader device found".to_string() })?;
 
   let mut dev = pawflash_core::force_fastboot::serial::open_with_permission_recovery(&port)
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| { warn!(%port, error = %e, "open_with_permission_recovery failed"); e.to_string() })?;
 
-  send(&on_event, ProgressEvent::Phase { phase: "sending".into(), message: format!("Found preloader on {port}, sending FASTBOOT...") });
+  info!(%port, "preloader found, sending FASTBOOT");
+  send_progress(&on_event, ProgressEvent::Phase { phase: "sending".into(), message: format!("Found preloader on {port}, sending FASTBOOT...") });
 
   loop {
     use tokio::io::AsyncWriteExt;
     match dev.write_all(b"FASTBOOT").await {
       Ok(()) => { let _ = dev.flush().await; }
       Err(_) => {
+        debug!("FASTBOOT write failed, checking mode and reconnecting");
         drop(dev);
         if pawflash_core::force_fastboot::fastboot::in_fastboot_mode().await {
+          debug!("device already in fastboot mode after reconnect");
           break;
         }
         let Some(new_port) =
           pawflash_core::force_fastboot::serial::wait_for_preloader(true).await.map_err(|e| e.to_string())?
         else {
+          warn!("preloader disappeared during handshake");
           break;
         };
+        debug!(port = %new_port, "reconnecting to preloader");
         dev = pawflash_core::force_fastboot::serial::open_with_permission_recovery(&new_port)
           .map_err(|e| e.to_string())?;
         continue;
@@ -109,67 +145,126 @@ async fn force_fastboot(app: tauri::AppHandle, on_event: Channel<ProgressEvent>)
     }
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     if pawflash_core::force_fastboot::fastboot::in_fastboot_mode().await {
+      debug!("fastboot mode confirmed");
       break;
     }
   }
 
-  send(&on_event, ProgressEvent::Done { ok: true, detail: "Device now in fastboot mode".into() });
+  info!("device now in fastboot mode");
+  send_progress(&on_event, ProgressEvent::Done { ok: true, detail: "Device now in fastboot mode".into() });
   let _ = app.emit("fastboot-devices", ());
   Ok(())
 }
 
+#[tracing::instrument(skip_all, fields(target))]
 #[tauri::command]
 async fn reboot_device(target: String) -> Result<(), String> {
-  let mut executor = FlashExecutor::connect().await.map_err(|e| e.to_string())?;
+  let mut executor = FlashExecutor::connect().await.map_err(|e| {
+    warn!(error = %e, "connect failed");
+    e.to_string()
+  })?;
   let boot_target = match target.as_str() {
     "system" => BootTarget::System,
     "bootloader" => BootTarget::Bootloader,
     "fastbootd" | "fastboot" => BootTarget::Fastboot,
     "recovery" => BootTarget::Recovery,
-    _ => return Err(format!("unknown target '{target}'")),
+    _ => {
+      warn!(%target, "unknown reboot target");
+      return Err(format!("unknown target '{target}'"));
+    }
   };
-  executor.reboot_to(boot_target).await.map_err(|e| e.to_string())
+  info!(?boot_target, "rebooting");
+  executor.reboot_to(boot_target).await.map_err(|e| {
+    warn!(?boot_target, error = %e, "reboot failed");
+    e.to_string()
+  })
 }
 
+#[tracing::instrument(skip_all)]
 #[tauri::command]
 async fn lock_bootloader() -> Result<String, String> {
-  let mut executor = FlashExecutor::connect().await.map_err(|e| e.to_string())?;
-  executor.flashing_lock().await.map_err(|e| e.to_string())
+  let mut executor = FlashExecutor::connect().await.map_err(|e| {
+    warn!(error = %e, "connect failed");
+    e.to_string()
+  })?;
+  let resp = executor.flashing_lock().await.map_err(|e| {
+    warn!(error = %e, "flashing lock failed");
+    e.to_string()
+  })?;
+  info!(response = %resp, "bootloader locked");
+  Ok(resp)
 }
 
+#[tracing::instrument(skip_all)]
 #[tauri::command]
 async fn unlock_bootloader() -> Result<String, String> {
-  let mut executor = FlashExecutor::connect().await.map_err(|e| e.to_string())?;
-  executor.flashing_unlock().await.map_err(|e| e.to_string())
+  let mut executor = FlashExecutor::connect().await.map_err(|e| {
+    warn!(error = %e, "connect failed");
+    e.to_string()
+  })?;
+  let resp = executor.flashing_unlock().await.map_err(|e| {
+    warn!(error = %e, "flashing unlock failed");
+    e.to_string()
+  })?;
+  info!(response = %resp, "bootloader unlocked");
+  Ok(resp)
 }
 
+#[tracing::instrument(skip_all, fields(slot))]
 #[tauri::command]
 async fn set_active_slot(slot: String) -> Result<String, String> {
   if slot != "a" && slot != "b" {
+    warn!(%slot, "invalid slot");
     return Err("slot must be 'a' or 'b'".into());
   }
-  let mut executor = FlashExecutor::connect().await.map_err(|e| e.to_string())?;
-  executor.set_active_slot(&slot).await.map_err(|e| e.to_string())
+  let mut executor = FlashExecutor::connect().await.map_err(|e| {
+    warn!(error = %e, "connect failed");
+    e.to_string()
+  })?;
+  let resp = executor.set_active_slot(&slot).await.map_err(|e| {
+    warn!(%slot, error = %e, "set_active_slot failed");
+    e.to_string()
+  })?;
+  info!(%slot, response = %resp, "active slot set");
+  Ok(resp)
 }
 
+#[tracing::instrument(skip_all, fields(name))]
 #[tauri::command]
 async fn get_var(name: String) -> Result<String, String> {
-  let mut executor = FlashExecutor::connect().await.map_err(|e| e.to_string())?;
-  executor.get_var(&name).await.map_err(|e| e.to_string())
+  let mut executor = FlashExecutor::connect().await.map_err(|e| {
+    warn!(error = %e, "connect failed");
+    e.to_string()
+  })?;
+  let value = executor.get_var(&name).await.map_err(|e| {
+    warn!(%name, error = %e, "get_var failed");
+    e.to_string()
+  })?;
+  info!(%name, %value, "variable retrieved");
+  Ok(value)
 }
 
+#[tracing::instrument(skip(on_event))]
 #[tauri::command]
 async fn disable_vbmeta(on_event: Channel<ProgressEvent>) -> Result<(), String> {
-  send(&on_event, ProgressEvent::Phase { phase: "connecting".into(), message: "Connecting to device...".into() });
-  let mut executor = FlashExecutor::connect().await.map_err(|e| e.to_string())?;
+  send_progress(&on_event, ProgressEvent::Phase { phase: "connecting".into(), message: "Connecting to device...".into() });
+  let mut executor = FlashExecutor::connect().await.map_err(|e| {
+    warn!(error = %e, "connect failed");
+    e.to_string()
+  })?;
 
-  send(&on_event, ProgressEvent::Phase { phase: "flashing".into(), message: "Flashing empty vbmeta...".into() });
-  executor.flash_empty_vbmeta().await.map_err(|e| e.to_string())?;
+  send_progress(&on_event, ProgressEvent::Phase { phase: "flashing".into(), message: "Flashing empty vbmeta...".into() });
+  executor.flash_empty_vbmeta().await.map_err(|e| {
+    warn!(error = %e, "flash_empty_vbmeta failed");
+    e.to_string()
+  })?;
 
-  send(&on_event, ProgressEvent::Done { ok: true, detail: "vbmeta verification disabled".into() });
+  info!("vbmeta verification disabled");
+  send_progress(&on_event, ProgressEvent::Done { ok: true, detail: "vbmeta verification disabled".into() });
   Ok(())
 }
 
+#[tracing::instrument(skip(on_event), fields(fs_type, clean_test, fs_options_count = fs_options.len()))]
 #[tauri::command]
 async fn format_data(
   fs_type: String,
@@ -177,11 +272,17 @@ async fn format_data(
   clean_test: bool,
   on_event: Channel<ProgressEvent>,
 ) -> Result<(), String> {
-  send(&on_event, ProgressEvent::Phase { phase: "connecting".into(), message: "Connecting to device...".into() });
-  let executor = FlashExecutor::connect().await.map_err(|e| e.to_string())?;
-  let mut executor = executor.ensure_fastbootd().await.map_err(|e| e.to_string())?;
+  send_progress(&on_event, ProgressEvent::Phase { phase: "connecting".into(), message: "Connecting to device...".into() });
+  let executor = FlashExecutor::connect().await.map_err(|e| {
+    warn!(error = %e, "connect failed");
+    e.to_string()
+  })?;
+  let mut executor = executor.ensure_fastbootd().await.map_err(|e| {
+    warn!(error = %e, "ensure_fastbootd failed");
+    e.to_string()
+  })?;
 
-  send(&on_event, ProgressEvent::Phase { phase: "formatting".into(), message: "Formatting data partitions...".into() });
+  send_progress(&on_event, ProgressEvent::Phase { phase: "formatting".into(), message: "Formatting data partitions...".into() });
   let fs_override = match fs_type.to_lowercase().as_str() {
     "ext4" => Some(FsType::Ext4),
     "f2fs" => Some(FsType::F2fs),
@@ -190,9 +291,8 @@ async fn format_data(
   let parsed_options = generator::parse_fs_options(&fs_options);
   let result = executor.format_data(parsed_options, clean_test, fs_override).await;
 
-  let events = map_flash_result(&result);
-  for e in events {
-    send(&on_event, e);
+  for e in map_flash_result(&result) {
+    send_progress(&on_event, e);
   }
 
   let failed: usize = result
@@ -200,29 +300,50 @@ async fn format_data(
     .iter()
     .filter(|o| matches!(o.status, pawflash_core::flash::results::FormatStatus::Failed(_)))
     .count();
+  let wiped: usize = result.outcomes.iter().filter(|o| matches!(o.status, pawflash_core::flash::results::FormatStatus::Wiped)).count();
+  info!(%fs_type, clean_test, %wiped, %failed, "format-data complete");
+
   if failed > 0 {
+    warn!(%failed, "format-data completed with failures");
     return Err(format!("format-data completed with {failed} failure(s)"));
   }
 
-  send(&on_event, ProgressEvent::Done { ok: true, detail: "Data partitions formatted".into() });
+  send_progress(&on_event, ProgressEvent::Done { ok: true, detail: "Data partitions formatted".into() });
   Ok(())
 }
 
-// ── New scatter commands ──────────────────────────────────────────────
+// ── Scatter commands ──────────────────────────────────────────────────
 
+#[tracing::instrument(skip_all, fields(path))]
 #[tauri::command]
 async fn parse_scatter(path: String) -> Result<sp::ScatterFile, String> {
-  let parsed = sp::parse_scatter(Path::new(&path)).map_err(|e| e.to_string())?;
+  let parsed = sp::parse_scatter(Path::new(&path)).map_err(|e| {
+    warn!(%path, error = %e, "parse_scatter failed");
+    e.to_string()
+  })?;
+  let count: usize = parsed.layouts.values().map(Vec::len).sum();
+  info!(%path, partition_count = %count, "scatter parsed");
   Ok(parsed)
 }
 
+#[tracing::instrument(skip_all, fields(path))]
 #[tauri::command]
 async fn build_plan(path: String, options: sp::FlashPlanOptions) -> Result<sp::FlashPlan, String> {
-  let parsed = sp::parse_scatter(Path::new(&path)).map_err(|e| e.to_string())?;
+  let parsed = sp::parse_scatter(Path::new(&path)).map_err(|e| {
+    warn!(%path, error = %e, "parse_scatter for plan failed");
+    e.to_string()
+  })?;
   let plan = sp::build_flash_plan(&parsed, &options);
+  info!(
+    actions = %plan.actions.len(),
+    skipped = %plan.skipped.len(),
+    errors = %plan.errors.len(),
+    "flash plan built"
+  );
   Ok(plan)
 }
 
+#[tracing::instrument(skip(app, on_event, options), fields(path))]
 #[tauri::command]
 async fn execute_plan(
   app: tauri::AppHandle,
@@ -231,52 +352,78 @@ async fn execute_plan(
   on_event: Channel<ProgressEvent>,
 ) -> Result<pawflash_core::flash::results::FlashResult, String> {
   // Parse
-  send(&on_event, ProgressEvent::Phase { phase: "parsing".into(), message: "Parsing scatter file...".into() });
-  let parsed = sp::parse_scatter(Path::new(&path)).map_err(|e| e.to_string())?;
+  send_progress(&on_event, ProgressEvent::Phase { phase: "parsing".into(), message: "Parsing scatter file...".into() });
+  let parsed = sp::parse_scatter(Path::new(&path)).map_err(|e| {
+    warn!(%path, error = %e, "execute_plan: parse failed");
+    e.to_string()
+  })?;
 
   // Build plan
-  send(&on_event, ProgressEvent::Phase { phase: "planning".into(), message: "Building flash plan...".into() });
+  send_progress(&on_event, ProgressEvent::Phase { phase: "planning".into(), message: "Building flash plan...".into() });
   let plan = sp::build_flash_plan(&parsed, &options);
+  debug!(actions = %plan.actions.len(), skipped = %plan.skipped.len(), "plan built");
 
   if !plan.errors.is_empty() {
     for err in &plan.errors {
-      send(&on_event, ProgressEvent::Error { message: err.clone() });
+      warn!(%err, "plan error");
+      send_progress(&on_event, ProgressEvent::Error { message: err.clone() });
     }
     return Err(format!("flash plan has {} error(s)", plan.errors.len()));
   }
 
   if plan.actions.is_empty() {
+    warn!("flash plan has no actions");
     return Err("flash plan has no actions to execute".into());
   }
 
   // Connect
-  send(&on_event, ProgressEvent::Phase { phase: "connecting".into(), message: "Connecting to fastboot device...".into() });
-  let mut executor = FlashExecutor::connect().await.map_err(|e| e.to_string())?;
+  send_progress(&on_event, ProgressEvent::Phase { phase: "connecting".into(), message: "Connecting to fastboot device...".into() });
+  let mut executor = FlashExecutor::connect().await.map_err(|e| {
+    warn!(error = %e, "execute_plan: connect failed");
+    e.to_string()
+  })?;
 
   // Execute
   let total = plan.actions.len();
-  send(&on_event, ProgressEvent::Overall { current: 0, total });
-  send(&on_event, ProgressEvent::Phase { phase: "flashing".into(), message: format!("Flashing {total} partitions...") });
+  info!(%total, "starting flash execution");
+  send_progress(&on_event, ProgressEvent::Overall { current: 0, total });
+  send_progress(&on_event, ProgressEvent::Phase { phase: "flashing".into(), message: format!("Flashing {total} partitions...") });
 
   let result = executor.execute_plan(&plan, false, None).await;
 
   // Report outcomes
   for (i, outcome) in result.outcomes.iter().enumerate() {
-    send(&on_event, ProgressEvent::FlashProgress { partition: outcome.partition.clone(), percent: ((i + 1) as f64 / total as f64) * 100.0 });
-    send(&on_event, ProgressEvent::FlashComplete {
+    debug!(
+      partition = %outcome.partition,
+      success = %outcome.success,
+      response = outcome.response.as_deref().unwrap_or(""),
+      "flash outcome"
+    );
+    send_progress(&on_event, ProgressEvent::FlashProgress {
+      partition: outcome.partition.clone(),
+      percent: ((i + 1) as f64 / total as f64) * 100.0,
+    });
+    send_progress(&on_event, ProgressEvent::FlashComplete {
       partition: outcome.partition.clone(),
       success: outcome.success,
       response: outcome.response.clone(),
     });
     if !outcome.success {
       if let Some(ref err) = outcome.error {
-        send(&on_event, ProgressEvent::Error { message: format!("{}: {err}", outcome.partition) });
+        warn!(partition = %outcome.partition, error = %err, "partition flash failed");
+        send_progress(&on_event, ProgressEvent::Error { message: format!("{}: {err}", outcome.partition) });
       }
     }
   }
 
   let _ = app.emit("flash-complete", ());
-  send(&on_event, ProgressEvent::Done {
+  info!(
+    succeeded = %result.succeeded,
+    failed = %result.failed,
+    total = %result.total,
+    "flash execution complete"
+  );
+  send_progress(&on_event, ProgressEvent::Done {
     ok: result.failed == 0,
     detail: format!("{}/{} partitions flashed successfully", result.succeeded, result.total),
   });
@@ -284,6 +431,7 @@ async fn execute_plan(
   Ok(result)
 }
 
+#[tracing::instrument(skip(app, on_event), fields(partition, image_path))]
 #[tauri::command]
 async fn flash_raw_image(
   app: tauri::AppHandle,
@@ -291,24 +439,34 @@ async fn flash_raw_image(
   image_path: String,
   on_event: Channel<ProgressEvent>,
 ) -> Result<String, String> {
-  send(&on_event, ProgressEvent::Phase { phase: "connecting".into(), message: "Connecting to device...".into() });
-  let mut executor = FlashExecutor::connect().await.map_err(|e| e.to_string())?;
+  send_progress(&on_event, ProgressEvent::Phase { phase: "connecting".into(), message: "Connecting to device...".into() });
+  let mut executor = FlashExecutor::connect().await.map_err(|e| {
+    warn!(error = %e, "connect failed");
+    e.to_string()
+  })?;
 
   let path = Path::new(&image_path);
   if !path.exists() {
+    warn!(%image_path, "image not found");
     return Err(format!("image not found: {image_path}"));
   }
 
-  send(&on_event, ProgressEvent::Phase { phase: "flashing".into(), message: format!("Flashing {partition}...") });
-  let resp = executor.flash_raw_image(&partition, path).await.map_err(|e| e.to_string())?;
+  send_progress(&on_event, ProgressEvent::Phase { phase: "flashing".into(), message: format!("Flashing {partition}...") });
+  debug!(%partition, %image_path, "flashing raw image");
+  let resp = executor.flash_raw_image(&partition, path).await.map_err(|e| {
+    warn!(%partition, error = %e, "flash_raw_image failed");
+    e.to_string()
+  })?;
 
   let _ = app.emit("flash-complete", ());
-  send(&on_event, ProgressEvent::FlashComplete { partition, success: true, response: Some(resp.clone()) });
-  send(&on_event, ProgressEvent::Done { ok: true, detail: "Raw flash complete".into() });
+  info!(%partition, response = %resp, "raw flash complete");
+  send_progress(&on_event, ProgressEvent::FlashComplete { partition, success: true, response: Some(resp.clone()) });
+  send_progress(&on_event, ProgressEvent::Done { ok: true, detail: "Raw flash complete".into() });
 
   Ok(resp)
 }
 
+#[tracing::instrument(skip(app, on_event), fields(image_path, clean_test))]
 #[tauri::command]
 async fn flash_gsi(
   app: tauri::AppHandle,
@@ -318,40 +476,69 @@ async fn flash_gsi(
 ) -> Result<String, String> {
   let path = Path::new(&image_path);
   if !path.exists() {
+    warn!(%image_path, "GSI image not found");
     return Err(format!("GSI image not found: {image_path}"));
-    }
-    let image = path.canonicalize().map_err(|e| format!("failed to resolve path: {e}"))?;
+  }
+  let image = path.canonicalize().map_err(|e| {
+    warn!(%image_path, error = %e, "path canonicalize failed");
+    format!("failed to resolve path: {e}")
+  })?;
 
-  send(&on_event, ProgressEvent::Phase { phase: "connecting".into(), message: "Connecting to device...".into() });
-  let executor = FlashExecutor::connect().await.map_err(|e| e.to_string())?;
+  send_progress(&on_event, ProgressEvent::Phase { phase: "connecting".into(), message: "Connecting to device...".into() });
+  let executor = FlashExecutor::connect().await.map_err(|e| {
+    warn!(error = %e, "connect failed");
+    e.to_string()
+  })?;
 
   let report = |event: GsiEvent| {
     let msg = match &event {
-      GsiEvent::Step(s) => ProgressEvent::Phase { phase: "gsi-step".into(), message: s.as_str().into() },
-      GsiEvent::ModeDetected(m) => ProgressEvent::Phase { phase: "mode".into(), message: format!("Detected mode: {}", m.as_str()) },
-      GsiEvent::ModeReady(m) => ProgressEvent::Phase { phase: "mode".into(), message: format!("Ready in mode: {}", m.as_str()) },
+      GsiEvent::Step(s) => {
+        trace!(step = %s.as_str(), "GSI step");
+        ProgressEvent::Phase { phase: "gsi-step".into(), message: s.as_str().into() }
+      }
+      GsiEvent::ModeDetected(m) => {
+        debug!(mode = %m.as_str(), "GSI mode detected");
+        ProgressEvent::Phase { phase: "mode".into(), message: format!("Detected mode: {}", m.as_str()) }
+      }
+      GsiEvent::ModeReady(m) => {
+        info!(mode = %m.as_str(), "GSI mode ready");
+        ProgressEvent::Phase { phase: "mode".into(), message: format!("Ready in mode: {}", m.as_str()) }
+      }
       GsiEvent::ResolvedPartition { base, partition, size_bytes } => {
+        info!(%base, %partition, %size_bytes, "GSI partition resolved");
         ProgressEvent::Phase { phase: "resolved".into(), message: format!("{base} → {partition} ({size_bytes} bytes)") }
       }
       GsiEvent::Flashing { partition, size_bytes: _ } => {
+        debug!(%partition, "GSI flashing");
         ProgressEvent::FlashProgress { partition: partition.clone(), percent: 0.0 }
       }
       GsiEvent::Wiping { partition } => {
+        info!(%partition, "GSI wiping");
         ProgressEvent::FormatProgress { partition: partition.clone(), status: "wiping".into() }
       }
       GsiEvent::PartitionSkipped { partition, reason } => {
+        warn!(%partition, %reason, "GSI partition skipped");
         ProgressEvent::Warning { message: format!("Skipped {partition}: {reason}") }
       }
     };
     let _ = on_event.send(msg);
   };
 
+  info!(image = %image.display(), %clean_test, "starting GSI flash");
   let outcome = pawflash_core::gsi::execute_gsi_flash(executor, &image, clean_test, None, report)
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| {
+      warn!(error = %e, "GSI flash failed");
+      e.to_string()
+    })?;
 
   let _ = app.emit("flash-complete", ());
-  send(&on_event, ProgressEvent::Done {
+  info!(
+    flash_count = %outcome.summary.flash_count,
+    total_bytes = %outcome.summary.total_bytes,
+    "GSI flash complete"
+  );
+  send_progress(&on_event, ProgressEvent::Done {
     ok: true,
     detail: format!("GSI flash complete ({} partitions flashed, {} bytes)", outcome.summary.flash_count, outcome.summary.total_bytes),
   });
@@ -363,6 +550,7 @@ async fn flash_gsi(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+  init_logging();
   tauri::Builder::default()
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_fs::init())
