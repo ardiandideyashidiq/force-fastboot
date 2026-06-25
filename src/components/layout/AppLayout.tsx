@@ -87,11 +87,7 @@ export default function AppLayout({
             <span className="text-caption font-semibold tracking-overline text-muted-foreground/70 uppercase">
               pawflash
             </span>
-          ) : (
-            <span className="flex size-7 items-center justify-center rounded-md bg-accent-brand/20 text-accent-brand">
-              <Zap size={16} />
-            </span>
-          )}
+          ) : null}
           <Button
             variant="ghost"
             size="icon-sm"
