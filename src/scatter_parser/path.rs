@@ -198,7 +198,11 @@ fn find_first_allowed<'a>(
     candidates.iter().find_map(|&(via, ref candidate)| {
         let candidate = absolutize(candidate);
         let outside = package_root.as_ref().map(|root| !is_within(&candidate, root));
-        (outside != Some(true)).then_some((via, candidate, outside))
+        if outside == Some(true) {
+            None
+        } else {
+            Some((via, candidate, outside))
+        }
     })
 }
 
@@ -334,4 +338,34 @@ fn normalize_components(path: &Path) -> PathBuf {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_outside_package_is_blocked() {
+        let result = resolve_image_path(
+            Some("../outside.img"),
+            Some(Path::new("/tmp/scatter_dir")),
+            None,
+            Some(Path::new("/tmp/scatter_dir")),
+            false,
+        );
+        assert_eq!(result.exists, Some(false), "outside path should not exist");
+        assert_eq!(result.outside_package_root, Some(true));
+    }
+
+    #[test]
+    fn resolve_inside_package_works() {
+        let result = resolve_image_path(
+            Some("nonexistent.img"),
+            Some(Path::new("/tmp")),
+            None,
+            Some(Path::new("/tmp")),
+            false,
+        );
+        assert!(result.normalized.is_some(), "normalized should be set");
+    }
 }
