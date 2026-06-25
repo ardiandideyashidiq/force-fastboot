@@ -82,7 +82,7 @@ export default function AppLayout({
         style={{ width: sidebarOpen ? SIDEBAR_OPEN : SIDEBAR_COLLAPSED }}
       >
         {/* Brand + collapse */}
-        <div className="flex items-center justify-between shrink-0 px-3 pt-4 pb-3">
+        <div className="flex items-center justify-between shrink-0 px-3 pt-4 pb-3 border-b border-accent-brand/15">
           {sidebarOpen ? (
             <span className="text-caption font-semibold tracking-overline text-muted-foreground/70 uppercase">
               pawflash

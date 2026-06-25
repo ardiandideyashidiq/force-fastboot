@@ -134,7 +134,7 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
         </div>
         {/* Connected device info strip */}
         {connected && (
-          <div className="border-t border-border/50 px-4 py-2 flex items-center gap-4 text-caption text-muted-foreground/80 bg-muted/20">
+          <div className="border-t border-border/50 px-4 py-2 flex items-center gap-4 text-caption text-muted-foreground/80 bg-success/5">
             <span className="font-mono text-accent-brand/70">{device?.serial ?? "—"}</span>
             <span className="w-px h-3 bg-border/50" />
             <span>{vars.product ?? "—"}</span>
