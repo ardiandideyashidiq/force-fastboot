@@ -11,7 +11,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde_json::json;
 use tracing::debug;
 
-use crate::scatter_parser::types::{CleanMode, FlashPlan, FlashPlanOptions, ScatterFile};
+use crate::scatter_parser::types::{
+    CleanMode, FlashAction, FlashPlan, FlashPlanOptions, ScatterFile, ScatterPartition,
+    SkippedPartition,
+};
 
 use self::action::{
     apply_exclude_filter, compute_image_counts, finalize_plan_summary, flash_action,
@@ -27,6 +30,152 @@ use self::slot::{
     check_incomplete_slots, expand_requested_names, inherited_action_reason,
     inherited_image_source_for_slot_b, synthesize_slot_actions_if_needed,
 };
+
+fn build_partition_actions<'a>(
+    selected_parts: &'a [ScatterPartition],
+    options: &FlashPlanOptions,
+    explicit_names: &BTreeSet<String>,
+    parts_by_name: &BTreeMap<String, &'a ScatterPartition>,
+    scatter_dir: Option<&std::path::Path>,
+) -> (Vec<FlashAction>, Vec<SkippedPartition>) {
+    let mut actions = Vec::new();
+    let mut skipped = Vec::new();
+
+    for part in selected_parts {
+        let (selected, selection_reason) =
+            select_partition_for_mode(part, options, explicit_names);
+
+        if !selected {
+            skipped.push(skipped_partition(part, "not selected"));
+            continue;
+        }
+
+        if part.slot().is_some() && !part.flashable_by_profile() {
+            continue;
+        }
+
+        let image_source = inherited_image_source_for_slot_b(part, parts_by_name);
+        let (allowed, reason) = mode_allows_partition(
+            part,
+            image_source,
+            options.mode,
+            options.allowance.include_preloader,
+            options.clean != CleanMode::No,
+        );
+        if !allowed {
+            skipped.push(skipped_partition(part, &reason));
+            continue;
+        }
+
+        let (image, action_warnings) =
+            resolve_images_for_plan(image_source, scatter_dir, options);
+        let action_reason = if selection_reason.is_empty() {
+            inherited_action_reason(reason, part, image_source)
+        } else {
+            inherited_action_reason(selection_reason, part, image_source)
+        };
+
+        actions.push(flash_action(
+            "flash",
+            part,
+            Some(image),
+            &action_reason,
+            action_warnings,
+        ));
+    }
+
+    (actions, skipped)
+}
+
+#[must_use]
+fn finalize_plan(
+    options: &FlashPlanOptions,
+    scatter: &ScatterFile,
+    actions: &mut Vec<FlashAction>,
+    skipped: &mut Vec<SkippedPartition>,
+    logs: (&mut Vec<String>, &mut Vec<String>),
+    names: (&BTreeSet<String>, &BTreeSet<String>),
+    selected_parts: &[ScatterPartition],
+) -> FlashPlan {
+    let (warnings, errors) = logs;
+    let (explicit_names, available_names) = names;
+    warn_for_missing_selective_requests(
+        options.mode,
+        actions,
+        explicit_names,
+        available_names,
+        warnings,
+    );
+
+    synthesize_slot_actions_if_needed(selected_parts, actions);
+
+    apply_exclude_filter(actions, skipped, warnings, &options.exclude, available_names);
+
+    let incomplete_slots = check_incomplete_slots(
+        selected_parts,
+        actions,
+        options.allowance.allow_incomplete_slots,
+        warnings,
+        errors,
+    );
+
+    let (missing_images, oversized_images, action_warning_count) =
+        compute_image_counts(actions);
+
+    if options.image_verification.check_images && missing_images > 0 {
+        errors.push(format!("missing images: {missing_images}"));
+    }
+    if options.image_verification.check_images && oversized_images > 0 {
+        errors.push(format!("oversized images: {oversized_images}"));
+    }
+
+    debug!(
+        actions = actions.len(),
+        skipped = skipped.len(),
+        warnings = warnings.len(),
+        errors = errors.len(),
+        "flash plan summary",
+    );
+
+    let summary = finalize_plan_summary(
+        actions,
+        &PlanSummaryCounts {
+            skipped: skipped.len(),
+            missing_image: missing_images,
+            oversized_image: oversized_images,
+            action_warnings: action_warning_count,
+            incomplete_slot_bases: incomplete_slots.len(),
+            warnings: warnings.len(),
+            errors: errors.len(),
+        },
+    );
+
+    FlashPlan {
+        mode: mode_str(options.mode),
+        storage_selection: storage_str(options.storage),
+        selected_layouts: selected_layout_names(scatter, options.storage),
+        platform: scatter.platform.clone(),
+        project: scatter.project.clone(),
+        firmware_dir: options.firmware_dir.as_ref().map(|p| p.to_string_lossy().into_owned()),
+        package_root: options.package_root.as_ref().map(|p| p.to_string_lossy().into_owned()),
+        options: json!({
+            "check_images": options.image_verification.check_images,
+            "image_search": options.image_verification.image_search,
+            "include_preloader": options.allowance.include_preloader,
+            "allow_incomplete_slots": options.allowance.allow_incomplete_slots,
+            "clean": options.clean != CleanMode::No,
+            "parts": options.parts.clone(),
+            "groups": options.groups.clone(),
+            "exclude": options.exclude.clone(),
+        }),
+        summary,
+        actions: core::mem::take(actions),
+        skipped: core::mem::take(skipped),
+        incomplete_slots,
+        warnings: core::mem::take(warnings),
+        errors: core::mem::take(errors),
+    }
+}
 
 /// Build a safe flash plan for a parsed scatter file.
 ///
@@ -58,140 +207,23 @@ pub fn build_flash_plan(scatter: &ScatterFile, options: &FlashPlanOptions) -> Fl
     let explicit_names = expand_requested_names(&options.parts, &available_names);
 
     let scatter_dir = scatter.path.parent();
-    let mut actions = Vec::new();
-    let mut skipped = Vec::new();
-
-    for part in &selected_parts {
-        let (selected, selection_reason) =
-            select_partition_for_mode(part, options, &explicit_names);
-
-        if !selected {
-            skipped.push(skipped_partition(part, "not selected"));
-            continue;
-        }
-
-        if part.slot().is_some() && !part.flashable_by_profile() {
-            continue;
-        }
-
-        let image_source = inherited_image_source_for_slot_b(part, &parts_by_name);
-        let (allowed, reason) = mode_allows_partition(
-            part,
-            image_source,
-            options.mode,
-            options.allowance.include_preloader,
-            options.clean != CleanMode::No,
-        );
-        if !allowed {
-            skipped.push(skipped_partition(part, &reason));
-            continue;
-        }
-
-        let (image, action_warnings) =
-            resolve_images_for_plan(image_source, scatter_dir, options);
-        let action_reason = if selection_reason.is_empty() {
-            inherited_action_reason(reason, part, image_source)
-        } else {
-            inherited_action_reason(selection_reason, part, image_source)
-        };
-
-        actions.push(flash_action(
-            "flash",
-            part,
-            Some(image),
-            &action_reason,
-            action_warnings,
-        ));
-    }
-
-    warn_for_missing_selective_requests(
-        options.mode,
-        &actions,
+    let (mut actions, mut skipped) = build_partition_actions(
+        &selected_parts,
+        options,
         &explicit_names,
-        &available_names,
-        &mut warnings,
+        &parts_by_name,
+        scatter_dir,
     );
 
-    synthesize_slot_actions_if_needed(&selected_parts, &mut actions);
-
-    apply_exclude_filter(
+    finalize_plan(
+        options,
+        scatter,
         &mut actions,
         &mut skipped,
-        &mut warnings,
-        &options.exclude,
-        &available_names,
-    );
-
-    let incomplete_slots = check_incomplete_slots(
+        (&mut warnings, &mut errors),
+        (&explicit_names, &available_names),
         &selected_parts,
-        &actions,
-        options.allowance.allow_incomplete_slots,
-        &mut warnings,
-        &mut errors,
-    );
-
-    let (missing_images, oversized_images, action_warning_count) =
-        compute_image_counts(&actions);
-
-    if options.image_verification.check_images && missing_images > 0 {
-        errors.push(format!("missing images: {missing_images}"));
-    }
-    if options.image_verification.check_images && oversized_images > 0 {
-        errors.push(format!("oversized images: {oversized_images}"));
-    }
-
-    debug!(
-        actions = actions.len(),
-        skipped = skipped.len(),
-        warnings = warnings.len(),
-        errors = errors.len(),
-        "flash plan summary",
-    );
-
-    let summary = finalize_plan_summary(
-        &actions,
-        &PlanSummaryCounts {
-            skipped: skipped.len(),
-            missing_image: missing_images,
-            oversized_image: oversized_images,
-            action_warnings: action_warning_count,
-            incomplete_slot_bases: incomplete_slots.len(),
-            warnings: warnings.len(),
-            errors: errors.len(),
-        },
-    );
-
-    FlashPlan {
-        mode: mode_str(options.mode),
-        storage_selection: storage_str(options.storage),
-        selected_layouts: selected_layout_names(scatter, options.storage),
-        platform: scatter.platform.clone(),
-        project: scatter.project.clone(),
-        firmware_dir: options
-            .firmware_dir
-            .as_ref()
-            .map(|p| p.to_string_lossy().into_owned()),
-        package_root: options
-            .package_root
-            .as_ref()
-            .map(|p| p.to_string_lossy().into_owned()),
-        options: json!({
-            "check_images": options.image_verification.check_images,
-            "image_search": options.image_verification.image_search,
-            "include_preloader": options.allowance.include_preloader,
-            "allow_incomplete_slots": options.allowance.allow_incomplete_slots,
-            "clean": options.clean != CleanMode::No,
-            "parts": options.parts.clone(),
-            "groups": options.groups.clone(),
-            "exclude": options.exclude.clone(),
-        }),
-        summary,
-        actions,
-        skipped,
-        incomplete_slots,
-        warnings,
-        errors,
-    }
+    )
 }
 
 #[cfg(test)]
