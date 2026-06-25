@@ -145,8 +145,8 @@ export default function ToolsTab() {
     <div className="space-y-5">
       {/* Scatter File */}
       <section className="panel-shell overflow-hidden">
-        <div className="flex items-start gap-3 p-4">
-          <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-accent-soft text-accent-soft-foreground">
+        <div className="flex items-start gap-4 px-5 py-5">
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-accent-soft text-accent-soft-foreground">
             <FileText size={16} />
           </span>
           <div className="min-w-0 flex-1">
@@ -210,7 +210,7 @@ export default function ToolsTab() {
       </section>
 
       {/* GSI Flash */}
-      <section className="panel-shell flex items-center justify-between gap-3 px-4 py-3">
+      <section className="panel-shell flex items-center justify-between gap-3 px-5 py-3">
         <div className="flex items-center gap-3 min-w-0">
           <Gauge size={14} className="shrink-0 text-muted-foreground" />
           <div className="min-w-0">
@@ -240,7 +240,7 @@ export default function ToolsTab() {
 
       {/* Format Data + Disable AVB */}
       <div className="grid grid-cols-2 gap-3">
-        <section className="panel-shell flex items-center justify-between gap-3 px-4 py-3">
+        <section className="panel-shell flex items-center justify-between gap-3 px-5 py-3">
           <div className="flex items-center gap-3 min-w-0">
             <HardDrive size={14} className="shrink-0 text-muted-foreground" />
             <span className="text-body font-medium text-foreground/90">Format Data</span>
@@ -275,7 +275,7 @@ export default function ToolsTab() {
           </div>
         </section>
 
-        <section className="panel-shell flex items-center justify-between gap-3 px-4 py-3">
+        <section className="panel-shell flex items-center justify-between gap-3 px-5 py-3">
           <div className="flex items-center gap-3 min-w-0">
             <ShieldOff size={14} className="shrink-0 text-muted-foreground" />
             <div>

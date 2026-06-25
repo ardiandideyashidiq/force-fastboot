@@ -99,9 +99,9 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
     <div className="space-y-5">
       {/* Force Fastboot — hero action */}
       <section className="panel-shell overflow-hidden">
-        <div className="flex items-start gap-5 p-4">
-          <span className="flex size-10 shrink-0 items-center justify-center rounded-md bg-accent-brand/10 text-accent-brand">
-            <Zap size={20} />
+        <div className="flex items-start gap-5 px-5 py-5">
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-accent-brand/10 text-accent-brand">
+            <Zap size={18} />
           </span>
           <div className="min-w-0 flex-1">
             <h2 className="text-body font-semibold text-foreground">
@@ -135,7 +135,7 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
         </div>
         {/* Connected device info strip */}
         {connected && (
-          <div className="border-t border-border/50 px-4 py-2 flex items-center gap-4 text-caption text-muted-foreground/80 bg-success/5">
+          <div className="border-t border-border/50 px-5 py-2.5 flex items-center gap-4 text-caption text-muted-foreground/80 bg-success/5">
             <span className="font-mono text-accent-brand/70">{device?.serial ?? "—"}</span>
             <span className="w-px h-3 bg-border/50" />
             <span>{vars.product ?? "—"}</span>
@@ -150,7 +150,7 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
       </section>
 
       {/* Bootloader controls */}
-      <section className="panel-shell flex items-center justify-between gap-4 px-4 py-3">
+      <section className="panel-shell flex items-center justify-between gap-4 px-5 py-3">
         <div className="flex items-center gap-3 min-w-0">
           <Lock size={14} className="shrink-0 text-muted-foreground" />
           <span className="text-body font-medium text-foreground/90">Bootloader</span>
@@ -194,7 +194,7 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
       </section>
 
       {/* Active slot */}
-      <section className="panel-shell flex items-center justify-between gap-4 px-4 py-3">
+      <section className="panel-shell flex items-center justify-between gap-4 px-5 py-3">
         <div className="flex items-center gap-3 min-w-0">
           <Cpu size={14} className="shrink-0 text-muted-foreground" />
           <span className="text-body font-medium text-foreground/90">Active Slot</span>
@@ -220,7 +220,7 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
       </section>
 
       {/* Get variable */}
-      <section className="panel-shell px-4 py-3">
+      <section className="panel-shell px-5 py-3">
         <Label
           htmlFor="var-name"
           className="text-caption font-semibold uppercase tracking-label text-muted-foreground mb-2 block"
