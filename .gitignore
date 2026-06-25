@@ -2,3 +2,6 @@
 **/*.rs.bk
 Cargo.lock
 handshake.log
+dist/
+node_modules/
+

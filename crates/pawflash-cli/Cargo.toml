@@ -1,0 +1,33 @@
+[package]
+name = "pawflash-cli"
+version.workspace = true
+description.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+pawflash-core = { path = "../pawflash-core" }
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+owo-colors = "4"
+indicatif = "0.17"
+inquire = "0.7"
+tabled = { version = "0.18", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "registry"] }
+
+[dev-dependencies]
+assert_cmd = "2"
+predicates = "3"

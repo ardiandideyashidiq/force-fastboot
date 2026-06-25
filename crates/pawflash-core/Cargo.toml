@@ -1,0 +1,38 @@
+[package]
+name = "pawflash-core"
+version.workspace = true
+description.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = "1"
+encoding_rs = "0.8"
+indicatif = "0.17"
+inquire = "0.7"
+nusb = "0.2"
+owo-colors = "4"
+quick-xml = "0.38"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tabled = { version = "0.18", features = ["derive"] }
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+tokio-serial = "5"
+tracing = "0.1"
+fastboot-protocol = { path = "../../vendor/fastboot-rs/fastboot-protocol" }
+android-sparse-image = { path = "../../vendor/fastboot-rs/android-sparse-image" }
+tempfile = "3"
+async-trait = "0.1"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

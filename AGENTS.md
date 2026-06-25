@@ -3,26 +3,47 @@
 ## Commands
 
 ```sh
-# Build (debug)
-cargo build
+# Build CLI (debug)
+cargo build -p pawflash-cli
 
-# Build (release) — matches CI
-cargo build --release
+# Build CLI (release) — matches CI
+cargo build --release -p pawflash-cli
+
+# Build Tauri (dev)
+cargo build -p pawflash-tauri
+
+# Build core lib only
+cargo build -p pawflash-core
 
 # Run all tests
-cargo test
+cargo test --workspace
+
+# Run a single test
+cargo test -p pawflash-core <test_name>  # e.g. cargo test parse_int_should_accept_decimal
 
 # Lint (aggressive — project may not pass cleanly)
 cargo clippy --all-targets --all-features --locked -- -D warnings
 
-# Single test
-cargo test <test_name>  # e.g. cargo test parse_int_should_accept_decimal
+# Run Tauri dev server (requires frontend)
+pnpm tauri dev
 ```
 
 ## Project structure
 
-- Binary entry: `src/main.rs` — clap CLI with subcommands
-- Library entry: `src/lib.rs` — modules: `cli`, `force_fastboot`, `scatter_parser`, `flash`, `format`
+```
+force-fastboot/
+├── Cargo.toml                  → workspace manifest
+├── crates/
+│   ├── pawflash-core/          → domain logic: flash, force_fastboot, scatter_parser, format, gsi, output
+│   └── pawflash-cli/           → CLI binary (clap) — thin dispatch into pawflash-core
+├── src-tauri/                  → Tauri desktop app (React frontend to be added)
+│   ├── src/main.rs             → thin passthrough
+│   ├── src/lib.rs              → Tauri builder + commands wrapping pawflash-core
+│   ├── tauri.conf.json
+│   └── capabilities/default.json
+├── src/                        → React frontend (to be created)
+└── vendor/                     → vendored fastboot-rs fork + format tools
+```
 - Vendored deps: `vendor/fastboot-rs/` — fork of `boardswarm/fastboot-rs` with extra commands + edition 2024
 - Bundled format tools: `vendor/format-tools/` — prebuilt `mke2fs` + `make_f2fs` binaries (AOSP) for `format-data`, embedded via `include_bytes!`
 - All tests are in-module `#[cfg(test)]`; no integration tests under `tests/`

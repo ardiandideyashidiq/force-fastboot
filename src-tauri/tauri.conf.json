@@ -1,0 +1,35 @@
+{
+    "$schema": "./gen/schemas/desktop-schema.json",
+    "productName": "pawflash",
+    "version": "0.1.0",
+    "identifier": "com.pawflash.app",
+    "build": {
+        "devUrl": "http://localhost:1420",
+        "frontendDist": "../dist",
+"beforeDevCommand": "pnpm dev",
+"beforeBuildCommand": "pnpm build"
+    },
+    "app": {
+        "windows": [
+            {
+                "label": "main",
+                "title": "pawflash",
+                "width": 1024,
+                "height": 768
+            }
+        ],
+        "security": {
+            "csp": "default-src 'self'; img-src 'self' data:",
+            "capabilities": ["default"]
+        }
+    },
+    "bundle": {
+        "active": true,
+        "targets": "all",
+        "icon": [
+            "icons/icon.icns",
+            "icons/icon.ico",
+            "icons/icon.png"
+        ]
+    }
+}
