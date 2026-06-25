@@ -1,684 +1,32 @@
 //! Flash plan builder — converts a parsed `ScatterFile` into a `FlashPlan`.
 
+pub(crate) mod action;
+pub(crate) mod image;
+pub(crate) mod layout;
+pub(crate) mod mode;
+pub(crate) mod slot;
+
 use std::collections::{BTreeMap, BTreeSet};
 
-use serde_json::{json, Value};
+use serde_json::json;
 use tracing::debug;
 
-use crate::scatter_parser::parse::human_size;
-use crate::scatter_parser::path::resolve_image_path;
-use crate::scatter_parser::safety::{
-    ANDROID_CANONICAL, BOOTLOADER_CANONICAL, BOOT_CHAIN_CANONICAL, MCU_FW_CANONICAL,
-    MODEM_CANONICAL, REGIONAL_CANONICAL,
+use crate::scatter_parser::types::{FlashPlan, FlashPlanOptions, ScatterFile};
+
+use self::action::{
+    apply_exclude_filter, compute_image_counts, finalize_plan_summary, flash_action,
+    PlanSummaryCounts, skipped_partition,
 };
-use crate::scatter_parser::types::{
-    FlashAction, FlashPlan, FlashPlanOptions, Mode, ScatterFile, ScatterPartition,
-    SkippedPartition,
+use self::image::resolve_images_for_plan;
+use self::layout::{selected_layout_names, selected_partitions};
+use self::mode::{
+    mode_allows_partition, mode_str, record_unknown_groups, select_partition_for_mode,
+    storage_str, warn_for_missing_selective_requests,
 };
-use crate::scatter_parser::util::split_base_slot;
-
-// ── layout ───────────────────────────────────────────────────────────
-
-fn selected_partitions(scatter: &ScatterFile, storage: crate::scatter_parser::types::StorageSelect) -> Vec<ScatterPartition> {
-    selected_layouts(scatter, storage)
-        .into_values()
-        .flatten()
-        .collect()
-}
-
-fn selected_layouts(
-    scatter: &ScatterFile,
-    storage: crate::scatter_parser::types::StorageSelect,
-) -> BTreeMap<String, Vec<ScatterPartition>> {
-    use crate::scatter_parser::types::StorageSelect;
-    if storage == StorageSelect::All {
-        return scatter.layouts.clone();
-    }
-
-    let upper_to_key = scatter
-        .layouts
-        .keys()
-        .map(|key| (key.to_uppercase(), key.clone()))
-        .collect::<BTreeMap<_, _>>();
-
-    match storage {
-        StorageSelect::Ufs => upper_to_key
-            .get("UFS")
-            .map(|key| BTreeMap::from([(key.clone(), scatter.layouts[key].clone())]))
-            .unwrap_or_default(),
-        StorageSelect::Emmc => upper_to_key
-            .get("EMMC")
-            .map(|key| BTreeMap::from([(key.clone(), scatter.layouts[key].clone())]))
-            .unwrap_or_default(),
-        StorageSelect::Auto => {
-            for wanted in ["UFS", "EMMC"] {
-                if let Some(key) = upper_to_key.get(wanted) {
-                    return BTreeMap::from([(key.clone(), scatter.layouts[key].clone())]);
-                }
-            }
-            scatter
-                .layouts
-                .iter()
-                .next()
-                .map(|(key, parts)| BTreeMap::from([(key.clone(), parts.clone())]))
-                .unwrap_or_default()
-        }
-        StorageSelect::All => unreachable!("handled by early return"),
-    }
-}
-
-fn selected_layout_names(scatter: &ScatterFile, storage: crate::scatter_parser::types::StorageSelect) -> Vec<String> {
-    selected_layouts(scatter, storage).keys().cloned().collect()
-}
-
-// ── mode ─────────────────────────────────────────────────────────────
-
-fn mode_str(mode: Mode) -> String {
-    match mode {
-        Mode::DryRun => "dry-run",
-        Mode::Selective => "selective",
-        Mode::DirtyFlash => "dirty-flash",
-    }
-    .to_string()
-}
-
-fn storage_str(storage: crate::scatter_parser::types::StorageSelect) -> String {
-    use crate::scatter_parser::types::StorageSelect;
-    match storage {
-        StorageSelect::Auto => "auto",
-        StorageSelect::All => "all",
-        StorageSelect::Ufs => "ufs",
-        StorageSelect::Emmc => "emmc",
-    }
-    .to_string()
-}
-
-fn select_partition_for_mode(
-    part: &ScatterPartition,
-    options: &FlashPlanOptions,
-    explicit_names: &BTreeSet<String>,
-) -> (bool, String) {
-    match options.mode {
-        Mode::DryRun | Mode::DirtyFlash => {
-            (true, format!("mode {}", mode_str(options.mode)))
-        }
-        Mode::Selective => {
-            let by_part = explicit_names.contains(&part.name.to_lowercase())
-                || explicit_names.contains(&part.base_name().to_lowercase())
-                || explicit_names.contains(&part.canonical());
-            let by_group = part_matches_group(part, &options.groups);
-            let reason = match (by_part, by_group) {
-                (true, true) => "selected by part and group",
-                (true, false) => "selected by part",
-                (false, true) => "selected by group",
-                (false, false) => "",
-            };
-            (by_part || by_group, reason.to_string())
-        }
-    }
-}
-
-fn mode_allows_partition(
-    part: &ScatterPartition,
-    image_source: &ScatterPartition,
-    mode: Mode,
-    include_preloader: bool,
-    clean: bool,
-) -> (bool, String) {
-    let canonical = part.canonical();
-    let safety = part.safety_class();
-    let flashable = image_source.flashable_by_profile() && part.size > 0;
-
-    if matches!(safety.as_str(), "identity_or_calibration" | "dangerous") {
-        return (false, format!("blocked safety class: {safety}"));
-    }
-    if canonical == "preloader" && !include_preloader {
-        return (false, "preloader requires --include-preloader".to_string());
-    }
-
-    match mode {
-        Mode::DryRun => {
-            if flashable {
-                (true, "scatter profile selected".to_string())
-            } else {
-                (false, "not selected by scatter profile or no image".to_string())
-            }
-        }
-        Mode::Selective => {
-            if flashable {
-                (true, "selected by user".to_string())
-            } else {
-                (false, "selected but not flashable by scatter profile".to_string())
-            }
-        }
-        Mode::DirtyFlash => {
-            if !flashable {
-                return (false, "not selected by scatter profile or no image".to_string());
-            }
-            if clean && canonical == "userdata" {
-                return (true, "allowed by --clean".to_string());
-            }
-            if BOOTLOADER_CANONICAL.contains(&canonical.as_str())
-                || BOOT_CHAIN_CANONICAL.contains(&canonical.as_str())
-                || MODEM_CANONICAL.contains(&canonical.as_str())
-                || MCU_FW_CANONICAL.contains(&canonical.as_str())
-                || ANDROID_CANONICAL.contains(&canonical.as_str())
-                || REGIONAL_CANONICAL.contains(&canonical.as_str())
-            {
-                (true, format!("allowed by {}", mode_str(mode)))
-            } else {
-                (false, format!("not included in {} policy", mode_str(mode)))
-            }
-        }
-    }
-}
-
-// ── group ────────────────────────────────────────────────────────────
-
-fn part_matches_group(part: &ScatterPartition, groups: &[String]) -> bool {
-    let canonical = part.canonical();
-    groups.iter().any(|group| group_members(group).contains(&canonical.as_str()))
-}
-
-fn group_names() -> BTreeSet<&'static str> {
-    [
-        "boot", "bootloader", "avb", "modem", "mcu", "firmware",
-        "android", "regional", "full-safe",
-    ]
-    .into_iter()
-    .collect()
-}
-
-fn group_members(group: &str) -> BTreeSet<&'static str> {
-    match group.trim().to_lowercase().as_str() {
-        "boot" => BOOT_CHAIN_CANONICAL.iter().copied().collect(),
-        "bootloader" => BOOTLOADER_CANONICAL.iter().copied().collect(),
-        "avb" => ["vbmeta", "vbmeta_system", "vbmeta_vendor"].into_iter().collect(),
-        "modem" => MODEM_CANONICAL.iter().copied().collect(),
-        "mcu" => MCU_FW_CANONICAL.iter().copied().collect(),
-        "firmware" => BOOTLOADER_CANONICAL
-            .iter()
-            .chain(BOOT_CHAIN_CANONICAL)
-            .chain(MODEM_CANONICAL)
-            .chain(MCU_FW_CANONICAL)
-            .copied()
-            .collect(),
-        "android" => ANDROID_CANONICAL.iter().copied().collect(),
-        "regional" => REGIONAL_CANONICAL.iter().copied().collect(),
-        "full-safe" => BOOTLOADER_CANONICAL
-            .iter()
-            .chain(BOOT_CHAIN_CANONICAL)
-            .chain(MODEM_CANONICAL)
-            .chain(MCU_FW_CANONICAL)
-            .chain(ANDROID_CANONICAL)
-            .chain(REGIONAL_CANONICAL)
-            .copied()
-            .collect(),
-        _ => BTreeSet::new(),
-    }
-}
-
-fn record_unknown_groups(groups: &[String], errors: &mut Vec<String>) {
-    let known = group_names();
-    let unknown_groups: BTreeSet<_> = groups
-        .iter()
-        .filter(|g| !known.contains(g.to_lowercase().as_str()))
-        .cloned()
-        .collect();
-    for g in unknown_groups {
-        errors.push(format!("unknown group: {g}"));
-    }
-}
-
-fn warn_for_missing_selective_requests(
-    mode: Mode,
-    actions: &[FlashAction],
-    explicit_names: &BTreeSet<String>,
-    available_names: &BTreeSet<String>,
-    warnings: &mut Vec<String>,
-) {
-    if mode != Mode::Selective {
-        return;
-    }
-    let planned_names: BTreeSet<_> = actions
-        .iter()
-        .map(|a| a.partition.to_lowercase())
-        .collect();
-    for req in explicit_names {
-        if !available_names.contains(req) && !planned_names.contains(req) {
-            warnings.push(format!(
-                "requested partition not found in selected layout: {req}"
-            ));
-        }
-    }
-}
-
-// ── slot ─────────────────────────────────────────────────────────────
-
-fn inherited_image_source_for_slot_b<'a>(
-    part: &'a ScatterPartition,
-    parts_by_name: &BTreeMap<String, &'a ScatterPartition>,
-) -> &'a ScatterPartition {
-    if part.slot().as_deref() != Some("b")
-        || part.flashable_by_profile()
-    {
-        return part;
-    }
-
-    let source_name = format!("{}_a", part.base_name());
-    match parts_by_name.get(&source_name) {
-        Some(source) if source.flashable_by_profile() => source,
-        _ => part,
-    }
-}
-
-fn inherited_action_reason(
-    base_reason: String,
-    part: &ScatterPartition,
-    image_source: &ScatterPartition,
-) -> String {
-    if part.name.eq_ignore_ascii_case(&image_source.name) {
-        return base_reason;
-    }
-    let Some(source_slot) = image_source.slot() else {
-        return base_reason;
-    };
-    format!("{base_reason}; inherited from slot {source_slot} image")
-}
-
-fn expand_requested_names(
-    requested: &[String],
-    available: &BTreeSet<String>,
-) -> BTreeSet<String> {
-    let mut out = BTreeSet::new();
-    for raw in requested {
-        let name = raw.trim();
-        if name.is_empty() {
-            continue;
-        }
-        let lname = name.to_lowercase();
-        if available.contains(&lname) || split_base_slot(&lname).1.is_some() {
-            out.insert(lname);
-            continue;
-        }
-        let mut added = false;
-        for slot in ["a", "b"] {
-            let candidate = format!("{lname}_{slot}");
-            if available.contains(&candidate) {
-                out.insert(candidate);
-                added = true;
-            }
-        }
-        if !added {
-            out.insert(lname);
-        }
-    }
-    out
-}
-
-fn synthesize_slot_actions_if_needed(
-    selected_parts: &[ScatterPartition],
-    actions: &mut Vec<FlashAction>,
-) {
-    synthesize_non_download_slot_actions(selected_parts, actions);
-}
-
-fn synthesize_non_download_slot_actions(
-    selected_parts: &[ScatterPartition],
-    actions: &mut Vec<FlashAction>,
-) {
-    let parts_by_name: BTreeMap<_, _> = selected_parts
-        .iter()
-        .map(|p| (p.name.to_lowercase(), p))
-        .collect();
-    let actions_by_partition: BTreeMap<_, _> = actions
-        .iter()
-        .filter(|a| a.action == "flash")
-        .map(|a| (a.partition.to_lowercase(), a.clone()))
-        .collect();
-    let planned: BTreeSet<_> = actions_by_partition.keys().cloned().collect();
-    let mut synthesized = Vec::new();
-
-    for source_action in actions_by_partition.values() {
-        let Some(source_slot) = source_action.slot.as_deref() else {
-            continue;
-        };
-        let target_slot = match source_slot {
-            "a" => "b",
-            "b" => "a",
-            _ => continue,
-        };
-        let target_name = format!("{}_{}", source_action.base_name, target_slot);
-        if planned.contains(&target_name) {
-            continue;
-        }
-        let Some(target_part) = parts_by_name.get(&target_name) else {
-            continue;
-        };
-        if target_part.flashable_by_profile() {
-            continue;
-        }
-        synthesized.push(slot_synthesized_action(source_action, target_part, source_slot));
-    }
-
-    actions.extend(synthesized);
-}
-
-fn slot_synthesized_action(
-    source: &FlashAction,
-    target: &ScatterPartition,
-    source_slot: &str,
-) -> FlashAction {
-    let (image, warnings) = recheck_synthesized_image(source.image.clone(), target);
-    FlashAction {
-        action: source.action.clone(),
-        partition: target.name.clone(),
-        base_name: target.base_name(),
-        slot: target.slot(),
-        layout: target.layout.clone(),
-        region: target.region.clone(),
-        start: target.linear_start,
-        start_hex: format!("{:#x}", target.linear_start),
-        size: target.size,
-        size_hex: format!("{:#x}", target.size),
-        size_human: human_size(target.size),
-        image,
-        image_type: target.image_type.clone(),
-        safety_class: target.safety_class(),
-        reason: format!("inferred from slot {source_slot} image for slot all"),
-        warnings,
-    }
-}
-
-fn check_incomplete_slots(
-    selected_parts: &[ScatterPartition],
-    actions: &[FlashAction],
-    allow_incomplete_slots: bool,
-    warnings: &mut Vec<String>,
-    errors: &mut Vec<String>,
-) -> BTreeMap<String, Value> {
-    let mut incomplete_slots = BTreeMap::new();
-
-    let mut by_base_available: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-    let mut by_base_planned: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-    for part in selected_parts {
-        if let Some(slot) = part.slot() {
-            by_base_available
-                .entry(part.base_name())
-                .or_default()
-                .insert(slot);
-        }
-    }
-    for action in actions.iter().filter(|a| a.action == "flash") {
-        if let Some(slot) = &action.slot {
-            by_base_planned
-                .entry(action.base_name.clone())
-                .or_default()
-                .insert(slot.clone());
-        }
-    }
-
-    for (base, available) in by_base_available {
-        if !available.is_superset(&BTreeSet::from(["a".to_string(), "b".to_string()])) {
-            continue;
-        }
-        let planned = by_base_planned.get(&base).cloned().unwrap_or_default();
-        if !planned.is_empty()
-            && planned != BTreeSet::from(["a".to_string(), "b".to_string()])
-        {
-            let available_slots: Vec<_> = available.iter().cloned().collect();
-            let planned_slots: Vec<_> = planned.iter().cloned().collect();
-            incomplete_slots.insert(
-                base.clone(),
-                json!({
-                    "available_slots": available_slots,
-                    "planned_slots": planned_slots,
-                }),
-            );
-            let msg = format!(
-                "slot policy both requested but only planned slots {planned_slots:?} for {base}; available slots are {available_slots:?}"
-            );
-            if allow_incomplete_slots {
-                warnings.push(msg);
-            } else {
-                errors.push(msg);
-            }
-        }
-    }
-    incomplete_slots
-}
-
-// ── action ───────────────────────────────────────────────────────────
-
-fn flash_action(
-    action: &str,
-    part: &ScatterPartition,
-    image: Option<Value>,
-    reason: &str,
-    warnings: Vec<String>,
-) -> FlashAction {
-    FlashAction {
-        action: action.to_string(),
-        partition: part.name.clone(),
-        base_name: part.base_name(),
-        slot: part.slot(),
-        layout: part.layout.clone(),
-        region: part.region.clone(),
-        start: part.linear_start,
-        start_hex: format!("{:#x}", part.linear_start),
-        size: part.size,
-        size_hex: format!("{:#x}", part.size),
-        size_human: human_size(part.size),
-        image,
-        image_type: part.image_type.clone(),
-        safety_class: part.safety_class(),
-        reason: reason.to_string(),
-        warnings,
-    }
-}
-
-fn skipped_partition(part: &ScatterPartition, reason: &str) -> SkippedPartition {
-    SkippedPartition {
-        partition: part.name.clone(),
-        layout: part.layout.clone(),
-        region: part.region.clone(),
-        reason: reason.to_string(),
-        safety_class: part.safety_class(),
-        file_name: part.file_name.clone(),
-    }
-}
-
-struct PlanSummaryCounts {
-    skipped: usize,
-    missing_image: usize,
-    oversized_image: usize,
-    action_warnings: usize,
-    incomplete_slot_bases: usize,
-    warnings: usize,
-    errors: usize,
-}
-
-const fn finalize_plan_summary(
-    actions: &[FlashAction],
-    counts: &PlanSummaryCounts,
-) -> crate::scatter_parser::types::FlashPlanSummary {
-    crate::scatter_parser::types::FlashPlanSummary {
-        flash_count: actions.len(),
-        skipped_count: counts.skipped,
-        missing_image_count: counts.missing_image,
-        oversized_image_count: counts.oversized_image,
-        action_warning_count: counts.action_warnings,
-        incomplete_slot_base_count: counts.incomplete_slot_bases,
-        warning_count: counts.warnings,
-        error_count: counts.errors,
-    }
-}
-
-// ── image ────────────────────────────────────────────────────────────
-
-fn resolve_images_for_plan(
-    part: &ScatterPartition,
-    scatter_dir: Option<&std::path::Path>,
-    options: &FlashPlanOptions,
-) -> (Value, Vec<String>) {
-    let resolved = resolve_image_path(
-        part.file_name.as_deref(),
-        scatter_dir,
-        options.firmware_dir.as_deref(),
-        options.package_root.as_deref(),
-        options.image_search,
-    );
-    let (status, mut warnings) = checked_image_status(
-        resolved.resolved_path.as_deref(),
-        resolved.exists,
-        options.check_images,
-        part.size,
-    );
-    if let Some(warning) = &resolved.warning {
-        warnings.insert(0, warning.clone());
-    }
-    (
-        json!({
-            "file_name": part.file_name,
-            "path": resolved,
-            "status": status,
-        }),
-        warnings,
-    )
-}
-
-fn checked_image_status(
-    resolved_path: Option<&str>,
-    exists: Option<bool>,
-    checked: bool,
-    target_size: i64,
-) -> (Value, Vec<String>) {
-    let mut warnings = Vec::new();
-    let mut status = json!({
-        "checked": checked,
-        "exists": exists,
-        "size_bytes": null,
-        "size_human": null,
-        "fits_partition": null,
-        "magic": null,
-    });
-    if !checked {
-        return (status, warnings);
-    }
-
-    if let Some(path) = resolved_path.filter(|_| exists == Some(true)) {
-        match std::fs::metadata(path) {
-            Ok(meta) => {
-                if let Ok(size) = i64::try_from(meta.len()) {
-                    status["size_bytes"] = json!(size);
-                    status["size_human"] = json!(human_size(size));
-                    status["fits_partition"] = json!(size <= target_size);
-                    status["magic"] = json!(crate::scatter_parser::parse::image_magic(std::path::Path::new(path)));
-                    if size > target_size {
-                        warnings.push(format!(
-                            "image is larger than partition: {size} > {target_size}"
-                        ));
-                    }
-                }
-            }
-            Err(e) => warnings.push(format!("failed to stat image: {e}")),
-        }
-    } else {
-        warnings.push("image missing".to_string());
-    }
-    (status, warnings)
-}
-
-fn recheck_synthesized_image(
-    image: Option<Value>,
-    target: &ScatterPartition,
-) -> (Option<Value>, Vec<String>) {
-    let Some(mut image) = image else {
-        return (None, Vec::new());
-    };
-    let mut warnings = Vec::new();
-    if let Some(warning) = image.pointer("/path/warning").and_then(Value::as_str) {
-        warnings.push(warning.to_string());
-    }
-    let checked = image
-        .pointer("/status/checked")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
-    if !checked {
-        return (Some(image), warnings);
-    }
-
-    let (status, mut status_warnings) = checked_image_status(
-        image.pointer("/path/resolved_path").and_then(Value::as_str),
-        image.pointer("/path/exists").and_then(Value::as_bool),
-        true,
-        target.size,
-    );
-    warnings.append(&mut status_warnings);
-    image["status"] = status;
-    (Some(image), warnings)
-}
-
-// ── plan builder ─────────────────────────────────────────────────────
-
-fn compute_image_counts(actions: &[FlashAction]) -> (usize, usize, usize) {
-    let missing_images = actions
-        .iter()
-        .filter(|a| {
-            a.action == "flash"
-                && a.image
-                    .as_ref()
-                    .and_then(|img| img.pointer("/path/exists"))
-                    == Some(&Value::Bool(false))
-        })
-        .count();
-    let oversized_images = actions
-        .iter()
-        .filter(|a| {
-            a.action == "flash"
-                && a.image
-                    .as_ref()
-                    .and_then(|img| img.pointer("/status/fits_partition"))
-                    == Some(&Value::Bool(false))
-        })
-        .count();
-    let action_warning_count = actions
-        .iter()
-        .map(|a| a.warnings.len())
-        .sum::<usize>();
-    (missing_images, oversized_images, action_warning_count)
-}
-
-fn apply_exclude_filter(
-    actions: &mut Vec<FlashAction>,
-    skipped: &mut Vec<SkippedPartition>,
-    warnings: &mut Vec<String>,
-    exclude: &[String],
-    available_names: &BTreeSet<String>,
-) {
-    if exclude.is_empty() {
-        return;
-    }
-    let excluded_names = expand_requested_names(exclude, available_names);
-    let excluded_set: BTreeSet<_> = excluded_names.iter().collect();
-    let (kept, removed): (Vec<_>, Vec<_>) = core::mem::take(actions)
-        .into_iter()
-        .partition(|a| !excluded_set.contains(&a.partition.to_lowercase()));
-    for action in removed {
-        skipped.push(SkippedPartition {
-            partition: action.partition,
-            layout: action.layout,
-            region: action.region,
-            reason: "excluded by --exclude".into(),
-            safety_class: action.safety_class,
-            file_name: action.image_type,
-        });
-    }
-    *actions = kept;
-    if actions.is_empty() {
-        warnings.push("all eligible partitions were excluded by --exclude".into());
-    }
-}
+use self::slot::{
+    check_incomplete_slots, expand_requested_names, inherited_action_reason,
+    inherited_image_source_for_slot_b, synthesize_slot_actions_if_needed,
+};
 
 /// Build a safe flash plan for a parsed scatter file.
 ///
@@ -707,8 +55,7 @@ pub fn build_flash_plan(scatter: &ScatterFile, options: &FlashPlanOptions) -> Fl
         .iter()
         .map(|part| part.name.to_lowercase())
         .collect::<BTreeSet<_>>();
-    let explicit_names =
-        expand_requested_names(&options.parts, &available_names);
+    let explicit_names = expand_requested_names(&options.parts, &available_names);
 
     let scatter_dir = scatter.path.parent();
     let mut actions = Vec::new();
@@ -727,10 +74,14 @@ pub fn build_flash_plan(scatter: &ScatterFile, options: &FlashPlanOptions) -> Fl
             continue;
         }
 
-        let image_source =
-            inherited_image_source_for_slot_b(part, &parts_by_name);
-        let (allowed, reason) =
-            mode_allows_partition(part, image_source, options.mode, options.include_preloader, options.clean);
+        let image_source = inherited_image_source_for_slot_b(part, &parts_by_name);
+        let (allowed, reason) = mode_allows_partition(
+            part,
+            image_source,
+            options.mode,
+            options.include_preloader,
+            options.clean,
+        );
         if !allowed {
             skipped.push(skipped_partition(part, &reason));
             continue;
@@ -763,7 +114,13 @@ pub fn build_flash_plan(scatter: &ScatterFile, options: &FlashPlanOptions) -> Fl
 
     synthesize_slot_actions_if_needed(&selected_parts, &mut actions);
 
-    apply_exclude_filter(&mut actions, &mut skipped, &mut warnings, &options.exclude, &available_names);
+    apply_exclude_filter(
+        &mut actions,
+        &mut skipped,
+        &mut warnings,
+        &options.exclude,
+        &available_names,
+    );
 
     let incomplete_slots = check_incomplete_slots(
         &selected_parts,
@@ -773,7 +130,8 @@ pub fn build_flash_plan(scatter: &ScatterFile, options: &FlashPlanOptions) -> Fl
         &mut errors,
     );
 
-    let (missing_images, oversized_images, action_warning_count) = compute_image_counts(&actions);
+    let (missing_images, oversized_images, action_warning_count) =
+        compute_image_counts(&actions);
 
     if options.check_images && missing_images > 0 {
         errors.push(format!("missing images: {missing_images}"));
@@ -790,15 +148,18 @@ pub fn build_flash_plan(scatter: &ScatterFile, options: &FlashPlanOptions) -> Fl
         "flash plan summary",
     );
 
-    let summary = finalize_plan_summary(&actions, &PlanSummaryCounts {
-        skipped: skipped.len(),
-        missing_image: missing_images,
-        oversized_image: oversized_images,
-        action_warnings: action_warning_count,
-        incomplete_slot_bases: incomplete_slots.len(),
-        warnings: warnings.len(),
-        errors: errors.len(),
-    });
+    let summary = finalize_plan_summary(
+        &actions,
+        &PlanSummaryCounts {
+            skipped: skipped.len(),
+            missing_image: missing_images,
+            oversized_image: oversized_images,
+            action_warnings: action_warning_count,
+            incomplete_slot_bases: incomplete_slots.len(),
+            warnings: warnings.len(),
+            errors: errors.len(),
+        },
+    );
 
     FlashPlan {
         mode: mode_str(options.mode),
@@ -806,8 +167,14 @@ pub fn build_flash_plan(scatter: &ScatterFile, options: &FlashPlanOptions) -> Fl
         selected_layouts: selected_layout_names(scatter, options.storage),
         platform: scatter.platform.clone(),
         project: scatter.project.clone(),
-        firmware_dir: options.firmware_dir.as_ref().map(|p| p.to_string_lossy().into_owned()),
-        package_root: options.package_root.as_ref().map(|p| p.to_string_lossy().into_owned()),
+        firmware_dir: options
+            .firmware_dir
+            .as_ref()
+            .map(|p| p.to_string_lossy().into_owned()),
+        package_root: options
+            .package_root
+            .as_ref()
+            .map(|p| p.to_string_lossy().into_owned()),
         options: json!({
             "check_images": options.check_images,
             "image_search": options.image_search,
@@ -830,7 +197,7 @@ pub fn build_flash_plan(scatter: &ScatterFile, options: &FlashPlanOptions) -> Fl
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scatter_parser::types::ScatterPartition;
+    use crate::scatter_parser::types::{Mode, ScatterPartition};
 
     fn synthetic_part(name: &str, download: bool, has_file: bool, size: i64) -> ScatterPartition {
         ScatterPartition {
@@ -896,7 +263,10 @@ mod tests {
     fn build_flash_plan_should_select_ufs_layout_by_default() {
         let mut layouts = std::collections::BTreeMap::new();
         layouts.insert("EMMC".to_string(), vec![]);
-        layouts.insert("UFS".to_string(), vec![synthetic_part("boot", true, true, 0x0040_0000)]);
+        layouts.insert(
+            "UFS".to_string(),
+            vec![synthetic_part("boot", true, true, 0x0040_0000)],
+        );
         let scatter = ScatterFile {
             path: std::path::PathBuf::from("test.xml"),
             format: "xml".to_string(),
