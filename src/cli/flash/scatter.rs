@@ -1,164 +1,15 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::{bail, Context, Result};
-use clap::CommandFactory;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
-use crate::cli::args::{Cli, FlashAction};
 use crate::flash::FlashExecutor;
 use crate::output;
 use crate::scatter_parser as sp;
 
-/// What action to perform with the scatter file.
-#[derive(Debug, Clone, Copy)]
-enum Action {
-    /// Show scatter metadata (replaces `show` + `full_json`).
-    Show { full_json: bool },
-    /// Dry-run: print plan without executing.
-    DryRun,
-    /// Execute the flash plan.
-    Execute,
-}
+use super::{Action, FormatMode, ScatterConfig};
 
-/// Whether and how to format data partitions.
-#[derive(Debug, Clone, Copy)]
-enum FormatMode {
-    Skip,
-    Format,
-    Test,
-}
-
-/// Grouped config for scatter operations.
-struct ScatterConfig<'a> {
-    scatter_path: &'a Path,
-    action: Action,
-    mode: sp::Mode,
-    storage: sp::StorageSelect,
-    parts: &'a [String],
-    groups: &'a [String],
-    exclude: &'a [String],
-    firmware_dir: Option<&'a Path>,
-    image_verification: sp::ImageVerification,
-    allowance: sp::Allowance,
-    json: bool,
-    format_mode: FormatMode,
-}
-
-fn print_flash_help() -> Result<()> {
-    let mut cmd = Cli::command();
-    if let Some(flash) = cmd.find_subcommand_mut("flash") {
-        flash.print_help()?;
-        output::status::blank();
-    }
-    Ok(())
-}
-
-/// Unified handler for all `pawflash flash` operations.
-///
-/// # Errors
-///
-/// Returns an error if the scatter file cannot be parsed, the device
-/// is not reachable, or any flash operation fails.
-pub async fn run(
-    action: Option<FlashAction>,
-    partition: Option<String>,
-    image: Option<PathBuf>,
-    slot: Option<String>,
-    both: bool,
-) -> Result<()> {
-    match action {
-        Some(FlashAction::Scatter {
-            ref path,
-            show,
-            full_json,
-            dry_run,
-            json,
-            mode,
-            storage,
-            ref part,
-            ref group,
-            ref exclude,
-            clean,
-            no_format,
-            clean_test,
-            ref firmware_dir,
-            check_images,
-            include_preloader,
-            image_search,
-            allow_incomplete_slots,
-        }) => {
-            let Some(p) = path else {
-                print_flash_help()?;
-                return Ok(());
-            };
-            let scatter_path = p.clone();
-
-            if !show && !dry_run
-                && mode == sp::Mode::Selective
-                && part.is_empty()
-                && group.is_empty()
-                && !json
-            {
-                warn!("no --part/--group specified; interactive mode uses --mode dirty-flash (your --mode {mode:?} is ignored)");
-                return crate::cli::interactive::run(&scatter_path, exclude, clean, no_format, clean_test).await;
-            }
-
-            let action = if show {
-                Action::Show { full_json }
-            } else if dry_run {
-                Action::DryRun
-            } else {
-                Action::Execute
-            };
-            let format_mode = if clean && !no_format || clean_test {
-                if clean_test { FormatMode::Test } else { FormatMode::Format }
-            } else {
-                FormatMode::Skip
-            };
-            let cfg = ScatterConfig {
-                scatter_path: &scatter_path,
-                action,
-                mode,
-                storage,
-                parts: part,
-                groups: group,
-                exclude,
-                firmware_dir: firmware_dir.as_deref(),
-                image_verification: sp::ImageVerification {
-                    check_images,
-                    image_search,
-                },
-                allowance: sp::Allowance {
-                    include_preloader,
-                    allow_incomplete_slots,
-                },
-                json,
-                format_mode,
-            };
-            run_scatter(&cfg).await?;
-        }
-        Some(FlashAction::Gsi { ref image, clean_test }) => {
-            crate::cli::gsi::run(image, clean_test).await?;
-        }
-        None => {
-            let Some(partition) = partition else {
-                print_flash_help()?;
-                return Ok(());
-            };
-            let Some(image) = image else {
-                print_flash_help()?;
-                return Ok(());
-            };
-            run_raw_image(&partition, &image, slot, both).await?;
-        }
-    }
-
-    Ok(())
-}
-
-// ── Scatter: show metadata / plan / execute ────────────────────────
-
-async fn run_scatter(cfg: &ScatterConfig<'_>) -> Result<()> {
+pub(super) async fn run_scatter(cfg: &ScatterConfig<'_>) -> Result<()> {
     debug!(
         scatter_path = %cfg.scatter_path.display(), ?cfg.action, ?cfg.mode,
         parts = %cfg.parts.join(","),
@@ -278,8 +129,6 @@ async fn run_scatter(cfg: &ScatterConfig<'_>) -> Result<()> {
     Ok(())
 }
 
-// ── Scatter: show metadata ─────────────────────────────────────────
-
 fn show_scatter_metadata(path: &Path, full_json: bool) -> Result<()> {
     let scatter = sp::parse_scatter(path)
         .with_context(|| format!("failed to parse {}", path.display()))?;
@@ -315,8 +164,6 @@ fn show_scatter_metadata(path: &Path, full_json: bool) -> Result<()> {
     Ok(())
 }
 
-// ── Scatter: print plan ────────────────────────────────────────────
-
 fn print_plan(plan: &sp::FlashPlan, json: bool) -> Result<()> {
     if json {
         let output = serde_json::to_string_pretty(plan)?;
@@ -344,76 +191,6 @@ fn print_plan(plan: &sp::FlashPlan, json: bool) -> Result<()> {
             output::status::data(output::status::error_colored("Errors:"));
             output::status::data(e);
         }
-    }
-
-    Ok(())
-}
-
-// ── Raw image flash ─────────────────────────────────────────────────
-
-async fn run_raw_image(
-    partition: &str,
-    image: &Path,
-    slot: Option<String>,
-    both: bool,
-) -> Result<()> {
-    if both && slot.is_some() {
-        bail!("--both and --slot are mutually exclusive");
-    }
-    if let Some(ref s) = slot {
-        if s != "a" && s != "b" {
-            bail!("--slot must be 'a' or 'b', got '{s}'");
-        }
-    }
-
-    if !image.exists() {
-        bail!("image not found: {}", image.display());
-    }
-    let image = image.canonicalize().context("failed to resolve image path")?;
-
-    debug!(%partition, image = %image.display(), ?slot, both, "raw image flash requested");
-
-    let mut executor = output::spinner::run_with_spinner(
-        "Connecting to fastboot device...",
-        FlashExecutor::connect(),
-    )
-    .await?;
-
-    let targets: Vec<String> = if both {
-        vec![format!("{partition}_a"), format!("{partition}_b")]
-    } else if let Some(s) = slot {
-        vec![format!("{partition}_{s}")]
-    } else {
-        let current = executor.device_vars().get("current-slot").map(String::as_str);
-        if let Some(slot) = current {
-            vec![format!("{partition}_{slot}")]
-        } else {
-            warn!("device has no current-slot variable; flashing to bare partition name");
-            vec![partition.to_string()]
-        }
-    };
-
-    info!(?targets, partition, "flashing");
-
-    let mut succeeded = 0usize;
-    let mut failed = 0usize;
-    for target in &targets {
-        match executor.flash_raw_image(target, &image).await {
-            Ok(resp) => {
-                info!(partition = %target, response = resp, "flash successful");
-                succeeded += 1;
-            }
-            Err(e) => {
-                tracing::error!(partition = %target, error = %e, "flash failed");
-                failed += 1;
-            }
-        }
-    }
-
-    info!(succeeded, failed, "flash complete");
-
-    if failed > 0 && succeeded == 0 {
-        bail!("flash-raw failed for all targets");
     }
 
     Ok(())
