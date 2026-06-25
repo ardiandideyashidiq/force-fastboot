@@ -1,49 +1,42 @@
-import { useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { useState, lazy, Suspense, useCallback } from "react";
+import AppLayout from "@/components/layout/AppLayout";
+import { Toaster } from "sonner";
+import type { Theme } from "@/types/api";
 
-interface DeviceInfo {
-    connected: boolean;
-    serial: string | null;
-    vars: Record<string, string>;
-}
+const MainTab = lazy(() => import("@/components/tabs/MainTab"));
+const ToolsTab = lazy(() => import("@/components/tabs/ToolsTab"));
+const SettingsTab = lazy(() => import("@/components/tabs/SettingsTab"));
 
 function App() {
-    const [device, setDevice] = useState<DeviceInfo | null>(null);
-    const [loading, setLoading] = useState(false);
+  const [theme, setTheme] = useState<Theme>(() => {
+    const root = document.documentElement;
+    return root.classList.contains("dark") ? "dark" : "light";
+  });
 
-    async function fetchDevice() {
-        setLoading(true);
-        try {
-            const info = await invoke<DeviceInfo>("get_device_info");
-            setDevice(info);
-        } catch (e) {
-            console.error("get_device_info failed", e);
-        } finally {
-            setLoading(false);
-        }
-    }
+  const onThemeChange = useCallback(
+    (value: Theme | ((current: Theme) => Theme)) => {
+      setTheme(value);
+    },
+    [],
+  );
 
-    useEffect(() => {
-        fetchDevice();
-    }, []);
-
-    return (
-        <main>
-            <h1>pawflash</h1>
-            <p>MTK device flashing toolkit</p>
-
-            <section>
-                <h2>Device</h2>
-                {loading && <p>Connecting...</p>}
-                {device && (
-                    <pre>{JSON.stringify(device, null, 2)}</pre>
-                )}
-                <button onClick={fetchDevice} disabled={loading}>
-                    Refresh
-                </button>
-            </section>
-        </main>
-    );
+  return (
+    <>
+      <AppLayout
+        theme={theme}
+        onThemeChange={onThemeChange}
+      >
+        {({ tab }) => (
+          <Suspense fallback={null}>
+            {tab === "main" && <MainTab />}
+            {tab === "tools" && <ToolsTab />}
+            {tab === "settings" && <SettingsTab />}
+          </Suspense>
+        )}
+      </AppLayout>
+      <Toaster richColors position="top-center" theme={theme} />
+    </>
+  );
 }
 
 export default App;

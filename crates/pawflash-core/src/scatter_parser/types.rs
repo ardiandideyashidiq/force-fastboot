@@ -158,7 +158,7 @@ impl ScatterPartition {
 }
 
 /// Parsed scatter file with all layouts.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ScatterFile {
     /// Path to the scatter file on disk.
     pub path: std::path::PathBuf,
@@ -189,7 +189,7 @@ impl ScatterFile {
 }
 
 /// Whether to include userdata in the flash plan via --clean.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum CleanMode {
     /// Do not include userdata in the flash plan.
     #[default]
@@ -199,7 +199,7 @@ pub enum CleanMode {
 }
 
 /// Image verification options.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ImageVerification {
     /// Whether to verify image file existence and size.
     pub check_images: bool,
@@ -208,7 +208,7 @@ pub struct ImageVerification {
 }
 
 /// Flash allowance options.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Allowance {
     /// Whether to include preloader in dirty-flash mode.
     pub include_preloader: bool,
@@ -217,7 +217,7 @@ pub struct Allowance {
 }
 
 /// Flash plan options.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct FlashPlanOptions {
     /// Flash planning mode.
     pub mode: Mode,

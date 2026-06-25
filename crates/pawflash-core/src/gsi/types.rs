@@ -1,3 +1,4 @@
+use serde::Serialize;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
@@ -90,7 +91,7 @@ impl Default for GsiFlashOptions {
 }
 
 /// Summary statistics from a completed GSI flash.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct GsiFlashSummary {
     pub flash_count: usize,
     pub wipe_count: usize,
@@ -99,7 +100,7 @@ pub struct GsiFlashSummary {
 }
 
 /// Outcome of a GSI flash operation.
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct GsiFlashOutcome {
     pub summary: GsiFlashSummary,
 }
