@@ -79,7 +79,7 @@ pub fn build_flash_plan(scatter: &ScatterFile, options: &FlashPlanOptions) -> Fl
             part,
             image_source,
             options.mode,
-            options.include_preloader,
+            options.allowance.include_preloader,
             options.clean != CleanMode::No,
         );
         if !allowed {
@@ -125,7 +125,7 @@ pub fn build_flash_plan(scatter: &ScatterFile, options: &FlashPlanOptions) -> Fl
     let incomplete_slots = check_incomplete_slots(
         &selected_parts,
         &actions,
-        options.allow_incomplete_slots,
+        options.allowance.allow_incomplete_slots,
         &mut warnings,
         &mut errors,
     );
@@ -133,10 +133,10 @@ pub fn build_flash_plan(scatter: &ScatterFile, options: &FlashPlanOptions) -> Fl
     let (missing_images, oversized_images, action_warning_count) =
         compute_image_counts(&actions);
 
-    if options.check_images && missing_images > 0 {
+    if options.image_verification.check_images && missing_images > 0 {
         errors.push(format!("missing images: {missing_images}"));
     }
-    if options.check_images && oversized_images > 0 {
+    if options.image_verification.check_images && oversized_images > 0 {
         errors.push(format!("oversized images: {oversized_images}"));
     }
 
@@ -176,10 +176,10 @@ pub fn build_flash_plan(scatter: &ScatterFile, options: &FlashPlanOptions) -> Fl
             .as_ref()
             .map(|p| p.to_string_lossy().into_owned()),
         options: json!({
-            "check_images": options.check_images,
-            "image_search": options.image_search,
-            "include_preloader": options.include_preloader,
-            "allow_incomplete_slots": options.allow_incomplete_slots,
+            "check_images": options.image_verification.check_images,
+            "image_search": options.image_verification.image_search,
+            "include_preloader": options.allowance.include_preloader,
+            "allow_incomplete_slots": options.allowance.allow_incomplete_slots,
             "clean": options.clean != CleanMode::No,
             "parts": options.parts.clone(),
             "groups": options.groups.clone(),

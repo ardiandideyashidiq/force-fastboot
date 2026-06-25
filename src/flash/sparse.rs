@@ -554,13 +554,6 @@ fn scan_extents(
 
     build_split_chunks(&extents, effective_size, part_size, blk)
 }
-    let file = std::fs::File::open(path)
-        .map_err(|e| FlashError::Io(std::io::Error::new(e.kind(), format!("scan open: {e}"))))?;
-
-    let extents = do_scan_impl(&file, scan_size.min(effective_size), blk)?;
-
-    build_split_chunks(&extents, effective_size, part_size, blk)
-}
 
 fn build_split_chunks(
     extents: &[(u64, u64, bool)],
