@@ -9,7 +9,6 @@ import { Label } from "@/components/ui/label";
 import {
   RefreshCw,
   Zap,
-  RotateCcw,
   Lock,
   Unlock,
   Cpu,
@@ -27,7 +26,6 @@ export default function MainTab() {
   const [device, setDevice] = useState<DeviceInfo | null>(null);
   const [loading, setLoading] = useState(false);
   const [connecting, setConnecting] = useState(false);
-  const [rebooting, setRebooting] = useState<string | null>(null);
   const [locking, setLocking] = useState(false);
   const [varName, setVarName] = useState("");
   const [varResult, setVarResult] = useState("");
@@ -57,17 +55,6 @@ export default function MainTab() {
       console.error("Force fastboot failed:", e);
     }
     setConnecting(false);
-  };
-
-  const reboot = async (target: string) => {
-    setRebooting(target);
-    try {
-      await invoke("reboot_device", { target });
-      await fetchDevice();
-    } catch (e) {
-      console.error(`Reboot to ${target} failed:`, e);
-    }
-    setRebooting(null);
   };
 
   const handleLock = async () => {
@@ -184,32 +171,6 @@ export default function MainTab() {
           </Button>
         </CardContent>
       </Card>
-
-      <Separator />
-
-      {/* Reboot */}
-      <div className="flex flex-wrap gap-2">
-        <span className="text-sm font-medium text-muted-foreground self-center mr-2">
-          Reboot:
-        </span>
-        {["system", "bootloader", "fastbootd", "recovery"].map((target) => (
-          <Button
-            key={target}
-            variant="outline"
-            size="sm"
-            onClick={() => reboot(target)}
-            disabled={rebooting === target || !connected}
-          >
-            <RotateCcw
-              size={14}
-              className={rebooting === target ? "animate-spin mr-1" : "mr-1"}
-            />
-            {target}
-          </Button>
-        ))}
-      </div>
-
-      <Separator />
 
       {/* Lock/Unlock */}
       <div className="flex flex-wrap gap-2 items-center">
