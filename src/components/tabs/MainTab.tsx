@@ -149,7 +149,7 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
       </section>
 
       {/* Bootloader controls */}
-      <section className="flex items-center justify-between gap-4 rounded-md border border-border/60 bg-card/80 px-4 py-3">
+      <section className="panel-shell flex items-center justify-between gap-4 px-4 py-3">
         <div className="flex items-center gap-3 min-w-0">
           <Lock size={14} className="shrink-0 text-muted-foreground" />
           <span className="text-body font-medium text-foreground/90">Bootloader</span>
@@ -193,32 +193,33 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
       </section>
 
       {/* Active slot */}
-      <section className="flex items-center justify-between gap-4 rounded-md border border-border/60 bg-card/80 px-4 py-3">
+      <section className="panel-shell flex items-center justify-between gap-4 px-4 py-3">
         <div className="flex items-center gap-3 min-w-0">
           <Cpu size={14} className="shrink-0 text-muted-foreground" />
           <span className="text-body font-medium text-foreground/90">Active Slot</span>
         </div>
-        <div className="flex rounded-md border border-border/60 overflow-hidden">
+        <div className="flex rounded-lg border border-border overflow-hidden">
           {["a", "b"].map((slot) => (
-            <button
+            <Button
               key={slot}
+              variant="ghost"
+              size="xs"
               onClick={() => handleSetSlot(slot)}
               disabled={!connected}
-              className={
-                `px-3 py-1 text-label font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ` +
-                (vars["current-slot"] === slot
-                  ? "bg-accent-brand text-accent-brand-foreground"
-                  : "bg-transparent text-muted-foreground hover:text-foreground hover:bg-muted/40")
-              }
+              className={`rounded-none ${
+                vars["current-slot"] === slot
+                  ? "bg-accent-brand text-accent-brand-foreground hover:bg-accent-brand"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
+              }`}
             >
               {slot.toUpperCase()}
-            </button>
+            </Button>
           ))}
         </div>
       </section>
 
       {/* Get variable */}
-      <section className="rounded-md border border-border/60 bg-card/80 px-4 py-3">
+      <section className="panel-shell px-4 py-3">
         <Label
           htmlFor="var-name"
           className="text-caption font-semibold uppercase tracking-label text-muted-foreground mb-2 block"

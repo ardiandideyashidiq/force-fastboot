@@ -94,9 +94,9 @@ function App() {
                 <div className="flex items-center gap-2">
                   <span className={`size-2 rounded-full ${connected ? "dot-complete" : "dot-waiting"}`} />
                   <span className="font-medium">{connected ? "Connected" : "Disconnected"}</span>
-                  <button className="ml-auto" onClick={fetchDevice} disabled={deviceLoading}>
+                  <Button variant="ghost" size="icon-xs" className="ml-auto" onClick={fetchDevice} disabled={deviceLoading}>
                     <RefreshCw size={12} className={deviceLoading ? "animate-spin" : ""} />
-                  </button>
+                  </Button>
                 </div>
                 {connected && (
                   <div className="text-muted-foreground space-y-0.5">

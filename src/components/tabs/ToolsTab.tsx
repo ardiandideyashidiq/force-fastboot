@@ -2,6 +2,7 @@ import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Select, SelectTrigger, SelectContent, SelectItem } from "@/components/ui/select";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   FileText,
@@ -208,7 +209,7 @@ export default function ToolsTab() {
       </section>
 
       {/* GSI Flash */}
-      <section className="flex items-center justify-between gap-3 rounded-md border border-border/60 bg-card/80 px-4 py-3">
+      <section className="panel-shell flex items-center justify-between gap-3 px-4 py-3">
         <div className="flex items-center gap-3 min-w-0">
           <Gauge size={14} className="shrink-0 text-muted-foreground" />
           <div className="min-w-0">
@@ -238,20 +239,21 @@ export default function ToolsTab() {
 
       {/* Format Data + Disable AVB */}
       <div className="grid grid-cols-2 gap-3">
-        <section className="flex items-center justify-between gap-3 rounded-md border border-border/60 bg-card/80 px-4 py-3">
+        <section className="panel-shell flex items-center justify-between gap-3 px-4 py-3">
           <div className="flex items-center gap-3 min-w-0">
             <HardDrive size={14} className="shrink-0 text-muted-foreground" />
             <span className="text-body font-medium text-foreground/90">Format Data</span>
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
-            <select
-              className="h-7 rounded-md border border-input bg-transparent px-2 text-label text-foreground/80 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 outline-none"
-              value={formatFsType}
-              onChange={(e) => setFormatFsType(e.target.value)}
-            >
-              <option value="f2fs">F2FS</option>
-              <option value="ext4">Ext4</option>
-            </select>
+            <Select value={formatFsType} onValueChange={(v) => v && setFormatFsType(v)}>
+              <SelectTrigger size="sm" className="h-7 min-w-16">
+                <span className="text-label">{formatFsType.toUpperCase()}</span>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="f2fs">F2FS</SelectItem>
+                <SelectItem value="ext4">Ext4</SelectItem>
+              </SelectContent>
+            </Select>
             <Button
               variant="default"
               size="xs"
@@ -272,7 +274,7 @@ export default function ToolsTab() {
           </div>
         </section>
 
-        <section className="flex items-center justify-between gap-3 rounded-md border border-border/60 bg-card/80 px-4 py-3">
+        <section className="panel-shell flex items-center justify-between gap-3 px-4 py-3">
           <div className="flex items-center gap-3 min-w-0">
             <ShieldOff size={14} className="shrink-0 text-muted-foreground" />
             <div>

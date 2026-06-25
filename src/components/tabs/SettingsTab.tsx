@@ -1,7 +1,7 @@
 export default function SettingsTab() {
   return (
     <div className="max-w-sm space-y-3">
-      <div className="rounded-md border border-border/60 bg-card/80 px-4 py-3 space-y-2">
+      <div className="panel-shell px-4 py-3 space-y-2">
         <InfoRow label="Name" value="pawflash" />
         <InfoRow label="Version" value="0.1.0" />
         <InfoRow label="Stack" value="Tauri v2 + React 19 + Rust" />
