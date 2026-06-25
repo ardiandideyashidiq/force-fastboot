@@ -190,10 +190,14 @@ async fn generate_ext4(
     let mut cmd = tokio::process::Command::new(&mke2fs);
     apply_tool_env(&mut cmd, tools_dir);
     cmd.env("MKE2FS_CONFIG", &conf);
+    cmd.arg("-F");                // force (recovery uses this)
     cmd.arg("-t").arg("ext4");
     cmd.arg("-b").arg(BLOCK_SIZE.to_string());
 
-    let mut ext_attr = String::from("android_sparse");
+    // Match recovery's feature flags: metadata_csum, 64bit, extent
+    // (not uninit_bg — recovery initialises block groups fully).
+    cmd.arg("-O").arg("metadata_csum,64bit,extent");
+
     if erase_blk_size != 0 && logical_blk_size != 0 {
         let mut raid_stride = u64::from(logical_blk_size / 4096);
         let mut raid_stripe_width = u64::from(erase_blk_size / 4096);
@@ -203,15 +207,14 @@ async fn generate_ext4(
         if raid_stripe_width < raid_stride {
             raid_stripe_width = raid_stride;
         }
-        let _ = std::fmt::write(&mut ext_attr, format_args!(",stride={raid_stride},stripe-width={raid_stripe_width}"));
+        let ext_attr =
+            format!("stride={raid_stride},stripe-width={raid_stripe_width}");
+        cmd.arg("-E").arg(&ext_attr);
     }
-    cmd.arg("-E").arg(&ext_attr);
-    cmd.arg("-O").arg("uninit_bg");
 
-    // FS_OPT_PROJID = bit 1
-    if fs_options & (1 << 1) != 0 {
-        cmd.arg("-I").arg("512");
-    }
+    // Always use wider inodes for project quotas (recovery always uses needs_projid=true).
+    // The --fs-options projid bit becomes a no-op.
+    cmd.arg("-I").arg("512");
     // FS_OPT_CASEFOLD = bit 0
     if fs_options & (1 << 0) != 0 {
         cmd.arg("-O").arg("casefold");
@@ -250,10 +253,9 @@ async fn generate_f2fs(
     cmd.arg("-S").arg(part_size.to_string());
     cmd.arg("-g").arg("android");
 
-    // FS_OPT_PROJID = bit 1
-    if fs_options & (1 << 1) != 0 {
-        cmd.arg("-O").arg("project_quota,extra_attr");
-    }
+    // Always add project_quota + extra_attr (recovery always does this for /data).
+    // The --fs-options projid bit becomes a no-op.
+    cmd.arg("-O").arg("project_quota,extra_attr");
     // FS_OPT_CASEFOLD = bit 0
     if fs_options & (1 << 0) != 0 {
         cmd.arg("-O").arg("casefold");

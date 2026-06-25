@@ -1,12 +1,18 @@
 use crate::output::{self, spinner, theme};
 
+/// Strip ANSI escape codes from a string for clean log output.
+fn strip(s: &str) -> String {
+    console::strip_ansi_codes(s).to_string()
+}
+
 /// Print command data output (tables, JSON, device info) — always to stdout.
-/// When `-v` is active, also emits via `tracing::info!`.
+/// When `-v` is active, also emits via `tracing::info!` (ANSI-stripped).
 pub fn data(output: impl AsRef<str>) {
+    let out = output.as_ref();
     if output::verbosity() >= 1 {
-        tracing::info!("{}", output.as_ref());
+        tracing::info!("{}", strip(out));
     }
-    println!("{}", output.as_ref());
+    println!("{out}");
 }
 
 /// Print a success status line (e.g., `OKAY (resp)`).
@@ -28,7 +34,7 @@ pub fn fail(label: impl AsRef<str>, detail: impl AsRef<str>) {
 pub fn dim(msg: impl AsRef<str>) {
     let colored = theme::dim(msg.as_ref());
     if output::verbosity() >= 1 {
-        tracing::info!("{colored}");
+        tracing::info!("{}", strip(&colored));
     }
     let _ = spinner::print(&format!("  {colored}"));
 }
@@ -51,13 +57,13 @@ pub fn blank() {
 }
 
 /// Print a block of text to stderr (for error details, flash results, etc.).
-/// When `-v` is active, also emits via `tracing::error!`.
+/// When `-v` is active, also emits via `tracing::error!` (ANSI-stripped).
 pub fn stderr(output: impl AsRef<str>) {
-    let output = output.as_ref();
+    let out = output.as_ref();
     if output::verbosity() >= 1 {
-        tracing::error!("{output}");
+        tracing::error!("{}", strip(out));
     }
-    let _ = spinner::print(output);
+    let _ = spinner::print(out);
 }
 
 fn emit_status(level: &str, label: String, detail: &str) {
@@ -68,10 +74,11 @@ fn emit_status(level: &str, label: String, detail: &str) {
     };
 
     if output::verbosity() >= 1 {
+        let plain = strip(&msg);
         match level {
-            "error" => tracing::error!("{msg}"),
-            "warn" => tracing::warn!("{msg}"),
-            _ => tracing::info!("{msg}"),
+            "error" => tracing::error!("{plain}"),
+            "warn" => tracing::warn!("{plain}"),
+            _ => tracing::info!("{plain}"),
         }
     }
     let _ = spinner::print(&msg);

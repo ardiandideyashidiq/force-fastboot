@@ -308,6 +308,13 @@ impl NusbFastBoot {
         Ok(resp == "yes")
     }
 
+    /// Send a snapshot-update command (cancel or merge).
+    /// Returns the device response message on success.
+    pub async fn snapshot_update(&mut self, cmd: &str) -> Result<String, NusbFastBootError> {
+        let c = FastBootCommand::SnapshotUpdate(cmd);
+        self.execute(c).await
+    }
+
     /// Resize a logical partition to the given size.
     /// Returns the device response message on success.
     pub async fn resize_logical_partition(

@@ -65,6 +65,8 @@ pub enum FastBootCommand<S> {
     SetActive(S),
     /// Resize a logical partition (inside super) to the given size
     ResizeLogicalPartition { partition: S, size: u64 },
+    /// Snapshot update management (cancel, merge)
+    SnapshotUpdate(S),
 }
 
 impl<S: Display> Display for FastBootCommand<S> {
@@ -86,6 +88,7 @@ impl<S: Display> Display for FastBootCommand<S> {
             FastBootCommand::ResizeLogicalPartition { partition, size } => {
                 write!(f, "resize-logical-partition:{partition}:{size}")
             }
+            FastBootCommand::SnapshotUpdate(cmd) => write!(f, "snapshot-update:{cmd}"),
         }
     }
 }

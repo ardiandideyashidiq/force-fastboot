@@ -5,17 +5,60 @@ use tracing::{debug, error, info, warn};
 use crate::flash::error::FlashError;
 use crate::flash::executor::FlashExecutor;
 use crate::flash::results::{FormatDataResult, FormatOutcome, FormatStatus};
+use crate::flash::sparse::CRYPT_FOOTER_OFFSET;
 use crate::format::generator::{self, FsType};
 
 impl FlashExecutor {
-    /// Erase userdata, cache, and metadata, then format with an empty filesystem.
-    /// Equivalent to `fastboot -w`.
+    /// Erase and format userdata, metadata, and cache.
     ///
-    /// When `clean_test` is true, only erases — skips filesystem generation and
-    /// sparse-wrap flash.  All partitions are reported as `ErasedOnly`.
-    pub async fn format_data(&mut self, fs_options: u32, clean_test: bool) -> FormatDataResult {
-        let partitions = ["userdata", "cache", "metadata"];
-        let mut outcomes = Vec::with_capacity(partitions.len());
+    /// 1. Checks that we are in **fastbootd** mode (warns if not).
+    /// 2. Cancels pending OTA snapshots via `snapshot-update:cancel`.
+    /// 3. Erases + creates a fresh filesystem on each partition.
+    /// 4. For `userdata` on legacy FDE (ext4 + footer) devices the filesystem
+    ///    is shrunk by [`CRYPT_FOOTER_OFFSET`] (16 KiB) and the footer zeroed.
+    ///    When the filesystem type is `f2fs` no footer offset is applied
+    ///    (modern Android uses inline encryption, not an on-disk footer).
+    ///
+    /// `fs_type_override` — when `Some(FsType)`, applies that type to
+    /// **userdata** even if the bootloader reports a different type
+    /// (e.g. MTK's fastbootd HAL reports `raw` for both f2fs and ext4).
+    /// When `None`, the type is auto-detected from `partition-type:` and
+    /// falls back to **f2fs** for userdata, **ext4** for metadata/cache.
+    ///
+    /// When `clean_test` is true, only erases — skips filesystem generation.
+    pub async fn format_data(
+        &mut self,
+        fs_options: u32,
+        clean_test: bool,
+        fs_type_override: Option<FsType>,
+    ) -> FormatDataResult {
+        let partitions = ["userdata", "metadata", "cache"];
+
+        // Warn if not in fastbootd — caller should have transitioned.
+        let is_fastbootd = self
+            .fb
+            .get_var("is-userspace")
+            .await
+            .map(|v| v == "yes")
+            .unwrap_or(false);
+        if !is_fastbootd {
+            warn!("format-data: device is in bootloader mode — logical partitions may not be accessible");
+        }
+
+        // Cancel any pending OTA snapshot state so the bootloader doesn't
+        // try to merge stale COW data on next boot.
+        info!("cancelling pending OTA snapshots");
+        match self.fb.snapshot_update("cancel").await {
+            Ok(resp) => debug!(response = %resp, "snapshot-update:cancel succeeded"),
+            Err(ref e) => {
+                debug!(error = %e, "snapshot-update:cancel failed (may be normal if no OTA was pending)");
+            }
+        }
+
+        // Clear the bootloader control block (misc partition) so the
+        // bootloader doesn't find a stale "boot-recovery" command and enter
+        // recovery on next boot — which would fail and bootloop.
+        self.clear_bootloader_bcb().await;
 
         info!(partitions = ?partitions, clean_test, "starting format-data");
 
@@ -24,6 +67,7 @@ impl FlashExecutor {
             Err(e) => {
                 let reason = format!("failed to extract format tools: {e}");
                 error!(%reason);
+                let mut outcomes = Vec::with_capacity(partitions.len());
                 for partition in &partitions {
                     outcomes.push(FormatOutcome {
                         partition: partition.to_string(),
@@ -55,12 +99,30 @@ impl FlashExecutor {
             .and_then(|s| parse_getvar_hex_u64(&s).and_then(|v| u32::try_from(v).ok()))
             .unwrap_or(0);
 
+        let mut outcomes = Vec::with_capacity(partitions.len());
         for partition in &partitions {
+            // Crypto footer offset only applies to ext4 userdata (legacy FDE).
+            // f2fs + inlinecrypt has no on-disk footer.
+            let footer_size = match (*partition, fs_type_override.unwrap_or(FsType::F2fs)) {
+                ("userdata", FsType::Ext4) => CRYPT_FOOTER_OFFSET,
+                _ => 0,
+            };
+
             let outcome = self
-                .wipe_partition(partition, fs_options, max_download, erase_blk, logical_blk, &tools_dir, clean_test)
+                .wipe_partition(
+                    partition,
+                    fs_options,
+                    max_download,
+                    erase_blk,
+                    logical_blk,
+                    &tools_dir,
+                    clean_test,
+                    footer_size,
+                    fs_type_override,
+                )
                 .await;
             match &outcome.status {
-                FormatStatus::Wiped => info!(%partition, "wiped ✓"),
+                FormatStatus::Wiped => info!(%partition, "wiped"),
                 FormatStatus::ErasedOnly(fs) => {
                     info!(%partition, fs_type = %fs, "erased only (unrecognized filesystem)");
                 }
@@ -72,10 +134,57 @@ impl FlashExecutor {
 
         let wiped = outcomes.iter().filter(|o| matches!(o.status, FormatStatus::Wiped)).count();
         let failed = outcomes.iter().filter(|o| matches!(o.status, FormatStatus::Failed(_))).count();
-        let erased_only = outcomes.iter().filter(|o| matches!(o.status, FormatStatus::ErasedOnly(_))).count();
+        let erased_only =
+            outcomes.iter().filter(|o| matches!(o.status, FormatStatus::ErasedOnly(_))).count();
         let skipped = outcomes.iter().filter(|o| matches!(o.status, FormatStatus::Skipped(_))).count();
         info!(wiped, erased_only, skipped, failed, "format-data complete");
+
         FormatDataResult { outcomes }
+    }
+
+    /// Zero the bootloader control block (BCB) in the misc partition so the
+    /// bootloader doesn't boot into recovery on next start.  Recovery's
+    /// `FinishRecovery()` calls `clear_bootloader_message()` which does the
+    /// same — without it a stale "boot-recovery" command left by a failed or
+    /// incomplete recovery attempt can cause an endless bootloop.
+    ///
+    /// We write 2048 zero bytes (the size of a standard BCB struct) to the
+    /// misc partition, or to `para` as a fallback (used by some MTK devices).
+    /// This preserves calibration data stored beyond the BCB area.
+    async fn clear_bootloader_bcb(&mut self) {
+        let partitions = ["misc", "para"];
+        let bcb_size = 2048u32;
+        let bcb_buf = vec![0u8; bcb_size as usize];
+
+        for part in &partitions {
+            let exists = match self.fb.get_var(&format!("partition-type:{part}")).await {
+                Ok(t) => !t.is_empty(),
+                Err(_) => false,
+            };
+            if !exists {
+                debug!(partition = *part, "BCB partition not found");
+                continue;
+            }
+            let Ok(mut sender) = self.fb.download(bcb_size).await else {
+                warn!(partition = *part, "BCB download failed");
+                continue;
+            };
+            if sender.extend_from_slice(&bcb_buf).await.is_err() {
+                warn!(partition = *part, "BCB data transfer failed");
+                continue;
+            }
+            if sender.finish().await.is_err() {
+                warn!(partition = *part, "BCB download finalise failed");
+                continue;
+            }
+            match self.fb.flash(part).await {
+                Ok(resp) => info!(partition = *part, response = %resp, "BCB cleared on {part}"),
+                Err(e) => warn!(partition = *part, error = %e, "BCB flash failed"),
+            }
+            return; // success on first writable partition
+        }
+
+        debug!("no BCB-capable partition found (misc/para)");
     }
 
     /// Erase, generate empty filesystem, download, and flash a single partition.
@@ -89,9 +198,10 @@ impl FlashExecutor {
         logical_blk: u32,
         tools_dir: &Path,
         clean_test: bool,
+        footer_size: u64,
+        fs_type_override: Option<FsType>,
     ) -> FormatOutcome {
         debug!(%partition, "wipe_partition: querying partition type");
-        // 1. query partition-type — skip if nonexistent
         let partition_type = match self.fb.get_var(&format!("partition-type:{partition}")).await {
             Ok(t) if !t.is_empty() => t,
             Ok(_) => {
@@ -108,7 +218,6 @@ impl FlashExecutor {
             }
         };
 
-        // 2. erase
         info!(%partition, "erasing");
         debug!(%partition, "sending erase command");
         if let Err(e) = self.fb.erase(partition).await {
@@ -118,16 +227,36 @@ impl FlashExecutor {
             };
         }
 
-        // 3. determine filesystem type
+        // Determine filesystem type.
+        // Priority: override > auto-detect from bootloader > platform default.
         debug!(%partition, %partition_type, "determining filesystem type");
-        let Some(fs_type) = FsType::from_partition_type(&partition_type) else {
-            return FormatOutcome {
-                partition: partition.into(),
-                status: FormatStatus::ErasedOnly(partition_type),
-            };
+        let fs_type = match (partition, fs_type_override) {
+            // Explicit override (--fs-type flag) applies to userdata only.
+            ("userdata", Some(t)) => t,
+            // Auto-detect from the bootloader's partition-type variable, or
+            // apply platform-default when the HAL reports "raw".
+            (_, _) => match FsType::from_partition_type(&partition_type) {
+                Some(t) => t,
+                None if partition == "userdata" => {
+                    // MTK fastbootd often reports "raw" — default to f2fs
+                    // (Android 11+ standard for userdata).
+                    info!(%partition, %partition_type, "defaulting to f2fs (reported as {partition_type})");
+                    FsType::F2fs
+                }
+                None if ["metadata", "cache"].contains(&partition) => {
+                    // Metadata/cache are always ext4 per AOSP convention.
+                    info!(%partition, %partition_type, "defaulting to ext4 (reported as {partition_type})");
+                    FsType::Ext4
+                }
+                None => {
+                    return FormatOutcome {
+                        partition: partition.into(),
+                        status: FormatStatus::ErasedOnly(partition_type),
+                    };
+                }
+            },
         };
 
-        // 3b. clean-test: erase-only, skip filesystem generation and flash
         if clean_test {
             return FormatOutcome {
                 partition: partition.into(),
@@ -135,7 +264,6 @@ impl FlashExecutor {
             };
         }
 
-        // 4. query partition size
         debug!(%partition, "querying partition size");
         let part_size = match self.fb.get_var(&format!("partition-size:{partition}")).await {
             Ok(s) => parse_getvar_hex_u64(&s).unwrap_or(0),
@@ -156,14 +284,14 @@ impl FlashExecutor {
             };
         }
 
-        // 5. generate empty filesystem image (block sizes pre-fetched)
-        debug!(%partition, %partition_type, part_size, "generating empty filesystem");
+        let fs_size = part_size.saturating_sub(footer_size);
+        debug!(%partition, %partition_type, part_size, fs_size, footer_size, "generating empty filesystem");
         let output_path = tools_dir.join("format.img");
         if let Err(e) = generator::generate_empty_fs(
             tools_dir,
             &output_path,
             fs_type,
-            part_size,
+            fs_size,
             erase_blk,
             logical_blk,
             fs_options,
@@ -176,8 +304,7 @@ impl FlashExecutor {
             };
         }
 
-        // 6. wrap as compact sparse (zero-run detection) + flash
-        info!(%partition, part_size, "flashing empty filesystem via zero-run sparse wrap");
+        info!(%partition, part_size, footer_size, "flashing empty filesystem via sparse wrap");
 
         let result = crate::flash::sparse::sparse_wrap_file(
             &mut self.fb,
@@ -185,6 +312,7 @@ impl FlashExecutor {
             &output_path,
             part_size,
             max_download,
+            footer_size,
         )
         .await;
 
@@ -201,8 +329,6 @@ impl FlashExecutor {
     }
 }
 
-/// Parse a bootloader-reported numeric variable as hex.
-/// Some bootloaders omit the `0x` prefix; AOSP always treats the value as hex.
 fn parse_getvar_hex_u64(s: &str) -> Option<u64> {
     let s = s.trim();
     let s = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")).unwrap_or(s);

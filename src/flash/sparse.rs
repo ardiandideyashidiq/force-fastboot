@@ -5,7 +5,7 @@
 //! flashing them in split pieces — each piece is a self-contained sparse
 //! image that the bootloader reassembles.
 
-use std::io::{Read, SeekFrom};
+use std::io::SeekFrom;
 use std::path::Path;
 
 use android_sparse_image::{
@@ -17,6 +17,11 @@ use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tracing::{debug, info};
 
 use crate::flash::error::{FlashError, Result};
+
+/// Crypto footer offset used by legacy FDE (Full Disk Encryption).
+/// TWRP preserves this space during mkfs and wipes it afterward
+/// to remove encryption — matches `CRYPT_FOOTER_OFFSET` in `bootable/recovery/partition.cpp`.
+pub const CRYPT_FOOTER_OFFSET: u64 = 0x4000;
 
 /// Helper: call `read_exact_padded`, then raise `SparseTruncated` if fewer
 /// bytes were read from the file than requested.
@@ -261,88 +266,67 @@ pub(crate) async fn flash_sparse_wrapped(
     Ok(last_resp)
 }
 
-/// Create an Android sparse image from a raw file by detecting zero runs,
-/// then flash it via download+flash.  The file is extended to `part_size`
-/// before scanning, ensuring all partition metadata regions (SIT, NAT, ...)
-/// are covered — even if the underlying image tool produced a small file.
+/// Create an Android sparse image from a raw file by detecting data/hole
+/// runs, then flash it via download+flash.
 ///
 /// Unlike [`flash_sparse_wrapped`] (which uses `split_raw` and treats every
 /// block as RAW data), this function collapses zero runs into DONTCARE
 /// chunks, producing a compact image that can be sent in a single
 /// download+flash even for huge partitions with only a few metadata blocks.
+///
+/// The file is extended to `effective_size` (normally `part_size -
+/// footer_size`) before scanning, ensuring all partition metadata regions
+/// (SIT, NAT, ...) are covered.  The last `footer_size` bytes are emitted
+/// as a DONTCARE chunk — the bootloader writes zeros there, matching
+/// TWRP's behaviour of wiping the crypto footer.
+///
+/// If `footer_size` is zero, `effective_size == part_size` and the entire
+/// partition is covered by the scan.
 pub(crate) async fn sparse_wrap_file(
     fb: &mut fastboot_protocol::nusb::NusbFastBoot,
     partition: &str,
     path: &Path,
     part_size: u64,
     max_download: u32,
+    footer_size: u64,
 ) -> Result<String> {
-    debug!(%partition, part_size, max_download, "zero-run sparse wrapping");
+    debug!(%partition, part_size, footer_size, max_download, "full-scan sparse wrapping");
 
-    let total_blocks = part_size / u64::from(DEFAULT_BLOCKSIZE);
+    let blk = u64::from(DEFAULT_BLOCKSIZE);
+    let effective_size = part_size.saturating_sub(footer_size);
+    let total_blocks = part_size / blk;
     if total_blocks == 0 {
-        // Partition has no blocks — a normal erase is sufficient.
         fb.erase(partition).await?;
         return Ok(String::new());
     }
 
-    // Extend the output file to the full partition size.  On Linux this
-    // creates a sparse file (holes) so the extra space costs no disk I/O.
+    // Save original file size before extending.
+    let orig_size = {
+        let m = tokio::fs::metadata(path).await?;
+        m.len()
+    };
+
+    // Extend the output file to effective_size. On Linux this creates a
+    // sparse file (holes) so the extra space costs no disk I/O.
     {
         let f = tokio::fs::File::create(path).await?;
-        f.set_len(part_size).await?;
+        f.set_len(effective_size).await?;
         drop(f);
     }
 
-    // ---- scan for non-zero data ----
-    let mut reader = std::io::BufReader::with_capacity(
-        1024 * 1024,
-        std::fs::File::open(path)
-            .map_err(|e| FlashError::Io(std::io::Error::new(e.kind(), format!("scan: {e}"))))?,
-    );
-    let mut block_buf = vec![0u8; DEFAULT_BLOCKSIZE as usize];
-    let mut data_blocks = 0u32;
+    // ---- scan for data / hole runs ----
+    // We scan from block 0 up to the smaller of (orig_size, effective_size)
+    // because blocks beyond orig_size were added by set_len and are
+    // guaranteed zeros.  We use SEEK_DATA / SEEK_HOLE on Unix for
+    // efficient extent iteration; fallback path reads in chunks.
+    let scan_size = effective_size.min(orig_size);
 
-    while data_blocks < u32::try_from(total_blocks).unwrap_or(u32::MAX) {
-        reader
-            .read_exact(&mut block_buf)
-            .map_err(|_| FlashError::SparseTruncated {
-                read: (data_blocks as usize) * DEFAULT_BLOCKSIZE as usize,
-                expected: total_blocks as usize,
-            })?;
-        if block_buf.iter().all(|&b| b == 0) {
-            break; // First zero block — metadata region ends here.
-        }
-        data_blocks += 1;
-    }
+    let chunks = scan_extents(path, scan_size, effective_size, part_size, blk)?;
 
-    let data_size = data_blocks as usize * DEFAULT_BLOCKSIZE as usize;
-    info!(
-        %partition,
-        data_blocks,
-        total_blocks,
-        data_size,
-        "zero-run scan complete",
-    );
-
-    // ---- build sparse chunks ----
-    let mut chunks = Vec::new();
-    if data_blocks > 0 {
-        chunks.push(SplitChunk {
-            header: ChunkHeader::new_raw(data_blocks, DEFAULT_BLOCKSIZE),
-            offset: 0,
-            size: data_size,
-        });
-    }
-    let zero_blocks = u32::try_from(total_blocks)
-        .unwrap_or(u32::MAX)
-        .saturating_sub(data_blocks);
-    if zero_blocks > 0 {
-        chunks.push(SplitChunk {
-            header: ChunkHeader::new_dontcare(zero_blocks),
-            offset: 0,
-            size: 0,
-        });
+    if chunks.is_empty() {
+        // Entire partition is zero — just erase.
+        fb.erase(partition).await?;
+        return Ok(String::new());
     }
 
     let n_chunks = u32::try_from(chunks.len())
@@ -357,11 +341,11 @@ pub(crate) async fn sparse_wrap_file(
         chunks: n_chunks,
         checksum: 0,
     };
-    let spare_size = FILE_HEADER_BYTES_LEN
+    let image_size = FILE_HEADER_BYTES_LEN
         + chunks.iter().map(|c| c.header.total_size as usize).sum::<usize>();
 
     // ---- check size ----
-    let sparse_size = u32::try_from(spare_size)
+    let sparse_size = u32::try_from(image_size)
         .map_err(|_| FlashError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
             "sparse image too large for u32",
@@ -400,6 +384,171 @@ pub(crate) async fn sparse_wrap_file(
     sender.finish().await?;
     let resp = fb.flash(partition).await?;
 
-    debug!(%partition, sparse_size, response = resp, "zero-run sparse flash complete");
+    debug!(%partition, sparse_size, response = resp, "full-scan sparse flash complete");
     Ok(resp)
+}
+
+/// Scan a sparse file for data/hole extent boundaries and build alternating
+/// RAW/DONTCARE Android sparse chunks.
+///
+/// On Unix uses `SEEK_DATA` / `SEEK_HOLE` for O(extents) scanning; on other
+/// platforms falls back to block-by-block reads.
+///
+/// The region from `effective_size` to `part_size` is always emitted as a
+/// DONTCARE chunk (bootloader writes zeros), matching TWRP's crypto-footer
+/// wipe behaviour.
+fn scan_extents(
+    path: &Path,
+    scan_size: u64,
+    effective_size: u64,
+    part_size: u64,
+    blk: u64,
+) -> Result<Vec<SplitChunk>> {
+    // On unix use SEEK_DATA/SEEK_HOLE extent iteration; on other platforms
+    // fall back to block-by-block reads.
+    #[cfg(unix)]
+    fn do_scan(
+        file: &std::fs::File,
+        effective_size: u64,
+        blk: u64,
+    ) -> Result<Vec<(u64, u64, bool)>> {
+        use std::os::unix::io::AsRawFd;
+        let fd = file.as_raw_fd();
+        let mut extents: Vec<(u64, u64, bool)> = Vec::new();
+        let mut offset: u64 = 0;
+
+        loop {
+            if offset >= effective_size {
+                break;
+            }
+            let seek_offset = i64::try_from(offset).unwrap_or(i64::MAX);
+            let data_start = match unsafe { libc::lseek(fd, seek_offset, libc::SEEK_DATA) } {
+                -1 => {
+                    let err = std::io::Error::last_os_error();
+                    if err.raw_os_error() == Some(libc::ENXIO) {
+                        if offset < effective_size {
+                            extents.push((offset, effective_size - offset, false));
+                        }
+                        break;
+                    }
+                    return Err(FlashError::Io(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("SEEK_DATA at {offset:#x}: {err}"),
+                    )));
+                }
+                pos => u64::try_from(pos).unwrap_or(u64::MAX),
+            };
+            let aligned = (data_start / blk) * blk;
+            if aligned > offset {
+                extents.push((offset, aligned - offset, false));
+            }
+            let hole_seek = i64::try_from(aligned).unwrap_or(i64::MAX);
+            let hole_start =
+                match unsafe { libc::lseek(fd, hole_seek, libc::SEEK_HOLE) } {
+                    -1 => {
+                        let err = std::io::Error::last_os_error();
+                        if err.raw_os_error() == Some(libc::ENXIO) {
+                            effective_size
+                        } else {
+                            return Err(FlashError::Io(std::io::Error::new(
+                                std::io::ErrorKind::Other,
+                                format!("SEEK_HOLE at {aligned:#x}: {err}"),
+                            )));
+                        }
+                    }
+                    pos => u64::try_from(pos).unwrap_or(u64::MAX),
+                };
+            let data_end = hole_start.min(effective_size);
+            let len = data_end.saturating_sub(aligned);
+            if len > 0 {
+                extents.push((aligned, len, true));
+            }
+            offset = data_end;
+        }
+        Ok(extents)
+    }
+
+    #[cfg(not(unix))]
+    fn do_scan(
+        file: &std::fs::File,
+        effective_size: u64,
+        blk: u64,
+    ) -> Result<Vec<(u64, u64, bool)>> {
+        use std::io::{BufReader, Read};
+        let mut reader = BufReader::with_capacity(1024 * 1024, file);
+        let mut extents: Vec<(u64, u64, bool)> = Vec::new();
+        let mut block_buf = vec![0u8; blk as usize];
+        let scan_blocks = effective_size / blk;
+        let mut run_start: u64 = 0;
+        let mut run_is_data = false;
+        let mut current_block: u64 = 0;
+
+        while current_block < scan_blocks {
+            reader.read_exact(&mut block_buf).map_err(|_| {
+                FlashError::SparseTruncated {
+                    read: (current_block as usize) * blk as usize,
+                    expected: scan_blocks as usize,
+                }
+            })?;
+            let is_data = !block_buf.iter().all(|&b| b == 0);
+            if current_block == 0 {
+                run_is_data = is_data;
+            }
+            if is_data != run_is_data {
+                let len = (current_block - run_start) * blk;
+                if len > 0 {
+                    extents.push((run_start * blk, len, run_is_data));
+                }
+                run_start = current_block;
+                run_is_data = is_data;
+            }
+            current_block += 1;
+        }
+        let len = (current_block - run_start) * blk;
+        if len > 0 {
+            extents.push((run_start * blk, len, run_is_data));
+        }
+        Ok(extents)
+    }
+
+    let file = std::fs::File::open(path)
+        .map_err(|e| FlashError::Io(std::io::Error::new(e.kind(), format!("scan open: {e}"))))?;
+
+    let extents = do_scan(&file, scan_size.min(effective_size), blk)?;
+
+    let mut chunks: Vec<SplitChunk> = Vec::new();
+    for (offset, len, is_data) in &extents {
+        let blocks = len / blk;
+        if blocks == 0 {
+            continue;
+        }
+        if *is_data {
+            chunks.push(SplitChunk {
+                header: ChunkHeader::new_raw(blocks as u32, DEFAULT_BLOCKSIZE),
+                offset: usize::try_from(*offset).unwrap_or(usize::MAX),
+                size: usize::try_from(*len).unwrap_or(usize::MAX),
+            });
+        } else {
+            chunks.push(SplitChunk {
+                header: ChunkHeader::new_dontcare(blocks as u32),
+                offset: 0,
+                size: 0,
+            });
+        }
+    }
+
+    // Footer region between effective_size and part_size: DONTCARE zeros
+    // the crypto footer, matching TWRP's behaviour of wiping encryption metadata.
+    if part_size > effective_size {
+        let fb = (part_size - effective_size) / blk;
+        if fb > 0 {
+            chunks.push(SplitChunk {
+                header: ChunkHeader::new_dontcare(fb as u32),
+                offset: 0,
+                size: 0,
+            });
+        }
+    }
+
+    Ok(chunks)
 }

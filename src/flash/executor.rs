@@ -315,6 +315,26 @@ impl FlashExecutor {
         Self::wait_for_device(Duration::from_secs(120)).await
     }
 
+    /// Ensure we are in fastbootd (userspace) mode, rebooting if necessary.
+    ///
+    /// Fastbootd is required for snapshot-update commands, logical partition
+    /// access (`partition-type:` / `partition-size:` queries), and proper
+    /// crypto footer handling.
+    pub async fn ensure_fastbootd(mut self) -> Result<Self> {
+        let is_fastbootd = self
+            .fb
+            .get_var("is-userspace")
+            .await
+            .map(|v| v == "yes")
+            .unwrap_or(false);
+        if is_fastbootd {
+            debug!("already in fastbootd mode");
+            return Ok(self);
+        }
+        info!("device is in bootloader mode, rebooting to fastbootd");
+        self.reboot_and_wait(BootTarget::Fastboot).await
+    }
+
     /// Flash the vendored empty vbmeta image to both slots.
     /// This disables dm-verity and AVB verification (flags=3).
     /// Returns the device response from the last flash.

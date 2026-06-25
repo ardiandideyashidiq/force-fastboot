@@ -52,6 +52,9 @@ fastboot-protocol = { path = "vendor/fastboot-rs/fastboot-protocol" }
 android-sparse-image = { path = "vendor/fastboot-rs/android-sparse-image" }
 tempfile = "3"
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 assert_cmd = "2"
 predicates = "3"

@@ -42,6 +42,9 @@ pub enum Commands {
         /// Comma-separated filesystem options: casefold, projid, compress
         #[arg(long, value_delimiter = ',')]
         fs_options: Vec<String>,
+        /// Filesystem type for userdata: ext4 or f2fs (default: f2fs)
+        #[arg(long, default_value = "f2fs")]
+        fs_type: String,
         /// Erase-only: skip filesystem generation (testing)
         #[arg(long)]
         clean_test: bool,

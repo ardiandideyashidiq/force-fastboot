@@ -237,7 +237,7 @@ pub async fn execute_gsi_flash(
             executor.flash_empty_vbmeta().await?;
 
             report(GsiEvent::Step(GsiStep::WipingUserdata));
-            executor.format_data(0, clean_test).await;
+            executor.format_data(0, clean_test, None).await;
 
             // Transition to fastbootd where logical partitions are visible.
             executor = transition_mode(executor, FastbootMode::Fastbootd, &mut report).await?;
@@ -291,7 +291,7 @@ pub async fn execute_gsi_flash(
             executor.flash_empty_vbmeta().await?;
 
             report(GsiEvent::Step(GsiStep::WipingUserdata));
-            executor.format_data(0, clean_test).await;
+            executor.format_data(0, clean_test, None).await;
         }
     }
 

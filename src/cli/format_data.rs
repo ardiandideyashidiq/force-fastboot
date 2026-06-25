@@ -1,31 +1,49 @@
-use anyhow::Result;
+use anyhow::{bail, Result};
 use tracing::debug;
 
 use crate::flash::executor::FlashExecutor;
-use crate::format::generator;
+use crate::format::generator::{self, FsType};
 use crate::output;
 
-/// Erase and format userdata, cache, and metadata.
+/// Erase and format userdata, metadata, and cache.
 ///
 /// # Errors
 ///
 /// Returns an error if the device is not reachable or formatting fails.
-pub async fn run(fs_options: Vec<String>, clean_test: bool) -> Result<()> {
+pub async fn run(
+    fs_options: Vec<String>,
+    fs_type_raw: String,
+    clean_test: bool,
+) -> Result<()> {
     let fs_options = generator::parse_fs_options(&fs_options);
 
-    debug!(?fs_options, clean_test, "format-data started");
+    let fs_type_override = match fs_type_raw.to_lowercase().as_str() {
+        "ext4" => Some(FsType::Ext4),
+        "f2fs" => Some(FsType::F2fs),
+        other => bail!("invalid --fs-type '{other}': expected ext4 or f2fs"),
+    };
 
-    let mut executor = output::spinner::run_with_spinner(
+    debug!(?fs_options, fs_type = ?fs_type_override, clean_test, "format-data started");
+
+    let executor = output::spinner::run_with_spinner(
         "Connecting to fastboot device for format-data...",
         FlashExecutor::connect(),
     )
     .await?;
 
-    let result = executor.format_data(fs_options, clean_test).await;
+    // Transition to fastbootd so we can cancel OTA snapshots and access
+    // logical partitions (metadata/userdata may be inside super).
+    let mut executor = output::spinner::run_with_spinner(
+        "Rebooting to fastbootd for format-data...",
+        executor.ensure_fastbootd(),
+    )
+    .await?;
+
+    let result = executor.format_data(fs_options, clean_test, fs_type_override).await;
 
     let failed = output::format_display::print_format_results(&result);
     if failed > 0 {
-        anyhow::bail!("format-data completed with {failed} failure(s)");
+        bail!("format-data completed with {failed} failure(s)");
     }
 
     debug!("format-data done");
