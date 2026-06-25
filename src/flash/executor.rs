@@ -6,6 +6,8 @@ use std::time::{Duration, Instant};
 
 use fastboot_protocol::nusb::NusbFastBoot;
 use indicatif::ProgressBar;
+
+use crate::flash::transport::FlashTransport;
 use tokio::io::AsyncReadExt;
 use tracing::{debug, info, warn};
 
@@ -59,34 +61,28 @@ impl fmt::Display for BootTarget {
 }
 
 /// Fastboot flash executor.
-pub struct FlashExecutor {
-    pub(crate) fb: NusbFastBoot,
+pub struct FlashExecutor<T: FlashTransport = NusbFastBoot> {
+    pub(crate) fb: T,
     device_vars: HashMap<String, String>,
 }
 
-impl FlashExecutor {
-    /// Connect to the first available fastboot device and query its variables.
-    /// If more than one device is found, emits a warning suggesting the user
-    /// disconnect extras to avoid targeting the wrong device.
-    /// When `EXPECTED_SERIAL` is set, only devices with matching serials are
-    /// considered; a `DeviceMismatch` error is returned if no device matches.
-    ///
+impl<T: FlashTransport> FlashExecutor<T> {
+    pub const fn new(fb: T, device_vars: HashMap<String, String>) -> Self {
+        Self { fb, device_vars }
+    }
+}
+
+impl FlashExecutor<NusbFastBoot> {
     /// # Errors
-    ///
-    /// Returns `FlashError::NoDevice` if no fastboot device is found, or
-    /// `FlashError::DeviceMismatch` if the device serial does not match
-    /// the expected value.
+    /// Returns `NoDevice` if no fastboot device is found, or
+    /// `DeviceMismatch` if the device serial does not match the expected value.
     pub async fn connect() -> Result<Self> {
         let expected = expected_serial();
-
         let all: Vec<_> = fastboot_protocol::nusb::devices()
             .await
             .map_err(|_| FlashError::NoDevice)?
-            .filter(|info| {
-                expected.is_none_or(|exp| info.serial_number() == Some(exp))
-            })
+            .filter(|info| expected.is_none_or(|exp| info.serial_number() == Some(exp)))
             .collect();
-
         if all.len() > 1 {
             warn!(
                 count = all.len(),
@@ -94,24 +90,17 @@ impl FlashExecutor {
                  disconnect extras to avoid targeting the wrong device"
             );
         }
-
         let info = all.into_iter().next().ok_or_else(|| {
             #[cfg(target_os = "linux")]
             crate::flash::diagnostics::diagnose_fastboot_sysfs();
             FlashError::NoDevice
         })?;
-
-
         debug!(
             vidpid = format_args!("{:04x}:{:04x}", info.vendor_id(), info.product_id()),
             serial = info.serial_number().unwrap_or("?"),
             "connecting to fastboot device"
         );
-
         let mut fb = NusbFastBoot::from_info(&info).await?;
-
-        // Some bootloaders hang on getvar:all (slow response), so use a
-        // generous timeout and fall back to individual queries if it fails.
         let device_vars = match tokio::time::timeout(
             std::time::Duration::from_secs(10),
             fb.get_all_vars(),
@@ -128,7 +117,6 @@ impl FlashExecutor {
                 HashMap::new()
             }
         };
-
         let device_vars = if device_vars.is_empty() {
             let mut vars: HashMap<String, String> = HashMap::new();
             for var in ["version", "product", "serialno", "current-slot", "max-download-size"] {
@@ -147,8 +135,6 @@ impl FlashExecutor {
         } else {
             device_vars
         };
-
-        // Verify serial number matches expected value, if set.
         if let Some(expected) = expected {
             match device_vars.get("serialno").map(String::as_str) {
                 Some(s) if s == expected => {
@@ -165,36 +151,76 @@ impl FlashExecutor {
                 }
             }
         }
-
         info!(
             product = device_vars.get("product").map_or("?", |s| s.as_str()),
             serial = device_vars.get("serialno").map_or("?", |s| s.as_str()),
             version = device_vars.get("version").map_or("?", |s| s.as_str()),
             "connected to fastboot device"
         );
-
         Ok(Self { fb, device_vars })
     }
 
-    /// Return the cached device variables.
+    /// # Errors
+    /// Returns `NoDevice` if no fastboot device appears within the timeout.
+    pub async fn wait_for_device(timeout: Duration) -> Result<Self> {
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        let start = std::time::Instant::now();
+        let mut last_log = start;
+        loop {
+            if start.elapsed() > timeout {
+                return Err(FlashError::NoDevice);
+            }
+            match Self::connect().await {
+                Ok(executor) => return Ok(executor),
+                Err(e) => {
+                    if last_log.elapsed() > Duration::from_secs(5) {
+                        warn!("waiting for fastboot device after reboot (error: {e}) ...");
+                        last_log = std::time::Instant::now();
+                    }
+                    tokio::time::sleep(Duration::from_millis(250)).await;
+                }
+            }
+        }
+    }
+
+    /// # Errors
+    /// Returns an error if the device does not reappear within 120 seconds.
+    pub async fn reboot_and_wait(mut self, target: BootTarget) -> Result<Self> {
+        debug!(?target, "rebooting device and waiting for reconnect");
+        debug!(?target, "rebooting device and waiting for reconnect");
+        if let Err(e) = self.fb.reboot_to(target.as_str()).await {
+            warn!(?target, error = %e, "reboot command error (device may have disconnected)");
+        }
+        drop(self);
+        Self::wait_for_device(Duration::from_secs(120)).await
+    }
+
+    /// # Errors
+    /// Returns an error if the device cannot transition to fastbootd.
+    pub async fn ensure_fastbootd(mut self) -> Result<Self> {
+        let is_fastbootd = self.fb.get_var("is-userspace").await.is_ok_and(|v| v == "yes");
+        if is_fastbootd {
+            debug!("already in fastbootd mode");
+            return Ok(self);
+        }
+        info!("device is in bootloader mode, rebooting to fastbootd");
+        self.reboot_and_wait(BootTarget::Fastboot).await
+    }
+}
+
+impl<T: FlashTransport> FlashExecutor<T> {
     #[must_use]
     pub const fn device_vars(&self) -> &HashMap<String, String> {
         &self.device_vars
     }
 
-    /// Get a fastboot variable from the device.
-    ///
     /// # Errors
-    ///
-    /// Returns an error if the device does not respond or the variable does not exist.
+    /// Returns an error if the device does not respond.
     pub async fn get_var(&mut self, var: &str) -> Result<String> {
-        self.fb.get_var(var).await.map_err(FlashError::from)
+        self.fb.get_var(var).await
     }
 
-    /// Get all fastboot variables from the device (with 10s timeout).
-    ///
     /// # Errors
-    ///
     /// Returns an error if the device does not respond within the timeout.
     pub async fn get_all_vars(&mut self) -> Result<HashMap<String, String>> {
         tokio::time::timeout(
@@ -203,60 +229,40 @@ impl FlashExecutor {
         )
             .await
             .map_err(|_| FlashError::NoDevice)?
-            .map_err(FlashError::from)
     }
 
-    /// Reboot the device (to system).
-    ///
     /// # Errors
-    ///
     /// Returns an error if the reboot command fails.
     pub async fn reboot(&mut self) -> Result<()> {
-        self.fb.reboot().await.map_err(FlashError::from).map(drop)
+        self.fb.reboot().await.map(drop)
     }
 
-    /// Reboot to a specific mode (bootloader, fastboot, recovery).
-    ///
     /// # Errors
-    ///
     /// Returns an error if the reboot command fails.
     pub async fn reboot_to(&mut self, target: BootTarget) -> Result<()> {
-        self.fb.reboot_to(target.as_str()).await.map_err(FlashError::from).map(drop)
+        self.fb.reboot_to(target.as_str()).await.map(drop)
     }
 
-    /// Lock the bootloader.
-    /// Returns the device response message.
-    ///
     /// # Errors
-    ///
-    /// Returns an error if the bootloader cannot be locked.
+    /// Returns an error if the flashing command fails.
     pub async fn flashing_lock(&mut self) -> Result<String> {
-        self.fb.flashing("lock").await.map_err(FlashError::from)
+        self.fb.flashing("lock").await
     }
 
-    /// Unlock the bootloader.
-    /// Returns the device response message.
-    ///
     /// # Errors
-    ///
-    /// Returns an error if the bootloader cannot be unlocked.
+    /// Returns an error if the flashing command fails.
     pub async fn flashing_unlock(&mut self) -> Result<String> {
-        self.fb.flashing("unlock").await.map_err(FlashError::from)
+        self.fb.flashing("unlock").await
     }
 
-    /// Set the active boot slot.
-    /// Returns the device response message.
-    ///
     /// # Errors
-    ///
-    /// Returns an error if the slot cannot be set.
+    /// Returns an error if the `set_active` command fails.
     pub async fn set_active_slot(&mut self, slot: &str) -> Result<String> {
-        self.fb.set_active(slot).await.map_err(FlashError::from)
+        self.fb.set_active(slot).await
     }
 
-    /// Execute a flash plan. Skips failed actions and continues.
-    /// In dry-run mode, verifies device + images without writing.
-    /// When `progress_bar` is `Some`, partition flash progress is shown on the bar.
+    /// # Errors
+    /// Returns an error if the flash command fails.
     pub async fn execute_plan(
         &mut self,
         plan: &FlashPlan,
@@ -266,28 +272,22 @@ impl FlashExecutor {
         let all_actions: Vec<_> = plan.actions.iter().filter(|a| a.action == "flash").collect();
         let total = all_actions.len();
         let mut outcomes = Vec::with_capacity(total);
-
         if dry_run {
             info!(total, "DRY RUN — no data will be written");
         } else {
             info!(total, "starting flash execution");
         }
-
-        // Query max download size
         let max_download = self.fb.get_var("max-download-size").await.ok()
             .and_then(|s| fastboot_protocol::protocol::parse_u32(&s).ok())
             .unwrap_or(256 * 1024 * 1024);
-
         for action in &all_actions {
             let partition = &action.partition;
             info!(%partition, "Writing partition");
-
             let start = Instant::now();
             let result = self
                 .flash_partition(action, dry_run, max_download, progress_bar)
                 .await;
             let duration = start.elapsed();
-
             match result {
                 Ok(response) => {
                     info!(%partition, duration = ?duration, response, "flash successful");
@@ -314,125 +314,28 @@ impl FlashExecutor {
                 }
             }
         }
-
         let succeeded = outcomes.iter().filter(|o| o.success).count();
         let failed = outcomes.iter().filter(|o| !o.success).count();
-
         info!(succeeded, failed, total, "flash plan execution complete");
-
         FlashResult { total, succeeded, failed, outcomes }
     }
 
-    /// Check whether a partition is a logical (dynamic) partition.
-    ///
     /// # Errors
-    ///
     /// Returns an error if the fastboot query fails.
     pub async fn is_logical(&mut self, partition: &str) -> Result<bool> {
-        self.fb.is_logical(partition).await.map_err(FlashError::from)
+        self.fb.is_logical(partition).await
     }
 
-    /// Resize a logical partition to the given size.
-    ///
     /// # Errors
-    ///
     /// Returns an error if the resize command fails.
     pub async fn resize_logical_partition(&mut self, partition: &str, size: u64) -> Result<()> {
-        self.fb
-            .resize_logical_partition(partition, size)
-            .await
-            .map_err(FlashError::from)
-            .map(drop)
+        self.fb.resize_logical_partition(partition, size).await
     }
 
-    /// Wait for a fastboot device to appear, trying every 250ms up to `timeout`.
-    /// Returns a new `FlashExecutor` connected to the device.
-    ///
-    /// After a reboot the device must re-enumerate on the USB bus and settle
-    /// before it can be claimed. An initial grace period is applied before the
-    /// first attempt, and a progress message is printed every 5 seconds so the
-    /// user knows we are still waiting.
-    ///
     /// # Errors
-    ///
-    /// Returns `FlashError::NoDevice` if no device appears within the timeout.
-    pub async fn wait_for_device(timeout: Duration) -> Result<Self> {
-        // After reboot, USB re-enumeration needs a moment.
-        tokio::time::sleep(Duration::from_secs(2)).await;
-
-        let start = std::time::Instant::now();
-        let mut last_log = start;
-        loop {
-            if start.elapsed() > timeout {
-                return Err(FlashError::NoDevice);
-            }
-            match Self::connect().await {
-                Ok(executor) => return Ok(executor),
-                Err(e) => {
-                    if last_log.elapsed() > Duration::from_secs(5) {
-                        warn!(
-                            "waiting for fastboot device after reboot (error: {e}) ..."
-                        );
-                        last_log = std::time::Instant::now();
-                    }
-                    tokio::time::sleep(Duration::from_millis(250)).await;
-                }
-            }
-        }
-    }
-
-    /// Consume self, reboot to the given target, then wait for the device to
-    /// re-enumerate and return a fresh `FlashExecutor`.
-    ///
-    /// The response read is intentionally ignored — the device disconnects
-    /// immediately after receiving the reboot command, causing USB transfer
-    /// errors that are harmless.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the device does not reappear within 120 seconds.
-    pub async fn reboot_and_wait(mut self, target: BootTarget) -> Result<Self> {
-        debug!(?target, "rebooting device and waiting for reconnect");
-        if let Err(e) = self.fb.reboot_to(target.as_str()).await {
-            warn!(?target, error = %e, "reboot command error (device may have disconnected)");
-        }
-        drop(self);
-        Self::wait_for_device(Duration::from_secs(120)).await
-    }
-
-    /// Ensure we are in fastbootd (userspace) mode, rebooting if necessary.
-    ///
-    /// Fastbootd is required for snapshot-update commands, logical partition
-    /// access (`partition-type:` / `partition-size:` queries), and proper
-    /// crypto footer handling.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the device cannot transition to fastbootd.
-    pub async fn ensure_fastbootd(mut self) -> Result<Self> {
-        let is_fastbootd = self
-            .fb
-            .get_var("is-userspace")
-            .await
-            .is_ok_and(|v| v == "yes");
-        if is_fastbootd {
-            debug!("already in fastbootd mode");
-            return Ok(self);
-        }
-        info!("device is in bootloader mode, rebooting to fastbootd");
-        self.reboot_and_wait(BootTarget::Fastboot).await
-    }
-
-    /// Flash the vendored empty vbmeta image to both slots.
-    /// This disables dm-verity and AVB verification (flags=3).
-    /// Returns the device response from the last flash.
-    ///
-    /// # Errors
-    ///
     /// Returns an error if the download or flash command fails.
     ///
     /// # Panics
-    ///
     /// Panics if `EMPTY_VBMETA` exceeds 4 GiB (impossible for a 512-byte image).
     pub async fn flash_empty_vbmeta(&mut self) -> Result<String> {
         let data = EMPTY_VBMETA;
@@ -601,7 +504,7 @@ impl FlashExecutor {
 
 /// Query `max-download-size` from the device and validate it is
 /// reasonable.  Returns an error if the value is present but below 1 MiB.
-pub(crate) async fn parse_max_download(fb: &mut NusbFastBoot) -> Result<u32> {
+pub(crate) async fn parse_max_download(fb: &mut impl FlashTransport) -> Result<u32> {
     let raw = fb.get_var("max-download-size").await.ok();
     let val = raw.as_deref()
         .and_then(|s| fastboot_protocol::protocol::parse_u32(s).ok())
@@ -615,4 +518,120 @@ pub(crate) async fn parse_max_download(fb: &mut NusbFastBoot) -> Result<u32> {
     Ok(val)
 }
 
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use serde_json::json;
+    use crate::flash::mock::MockTransport;
+    use crate::flash::executor::FlashExecutor;
+    use crate::scatter_parser::types::{FlashPlan, FlashAction};
+    use crate::scatter_parser::types::FlashPlanSummary;
+
+    fn mock_executor() -> FlashExecutor<MockTransport> {
+        let fb = MockTransport::new();
+        FlashExecutor::new(fb, HashMap::new())
+    }
+
+    fn make_action(partition: &str, resolved: Option<&str>) -> FlashAction {
+        let image = resolved.map(|p| json!({ "path": { "resolved_path": p } }));
+        FlashAction {
+            action: "flash".into(),
+            partition: partition.into(),
+            base_name: String::new(),
+            slot: None,
+            layout: String::new(),
+            region: String::new(),
+            start: 0,
+            start_hex: String::new(),
+            size: 0,
+            size_hex: String::new(),
+            size_human: String::new(),
+            image,
+            image_type: None,
+            safety_class: String::new(),
+            reason: String::new(),
+            warnings: Vec::new(),
+        }
+    }
+
+    fn make_empty_plan(actions: Vec<FlashAction>) -> FlashPlan {
+        FlashPlan {
+            actions,
+            mode: String::new(),
+            storage_selection: String::new(),
+            selected_layouts: Vec::new(),
+            platform: None,
+            project: None,
+            firmware_dir: None,
+            package_root: None,
+            options: json!({}),
+            summary: FlashPlanSummary::default(),
+            skipped: Vec::new(),
+            incomplete_slots: std::collections::BTreeMap::new(),
+            warnings: Vec::new(),
+            errors: Vec::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn execute_plan_happy_path_dry_run() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let img = dir.path().join("boot.img");
+        std::fs::write(&img, b"fake image data").unwrap();
+        let mut exec = mock_executor();
+        let plan = make_empty_plan(vec![
+            make_action("boot", img.to_str()),
+        ]);
+        let result = exec.execute_plan(&plan, true, None).await;
+        assert_eq!(result.total, 1);
+        assert_eq!(result.succeeded, 1);
+        assert_eq!(result.failed, 0);
+    }
+
+    #[tokio::test]
+    async fn execute_plan_missing_image_skipped() {
+        let mut exec = mock_executor();
+        let plan = make_empty_plan(vec![
+            make_action("boot", None),
+        ]);
+        let result = exec.execute_plan(&plan, false, None).await;
+        assert_eq!(result.total, 1);
+        assert_eq!(result.succeeded, 0);
+        assert_eq!(result.failed, 1);
+    }
+
+    #[tokio::test]
+    async fn execute_plan_download_failure_continues() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let img = dir.path().join("boot.img");
+        std::fs::write(&img, b"fake image data").unwrap();
+        let fb = MockTransport::new();
+        let mut exec = FlashExecutor::new(fb, HashMap::new());
+        exec.fb.fail_download = true;
+        let plan = make_empty_plan(vec![
+            make_action("boot", img.to_str()),
+        ]);
+        let result = exec.execute_plan(&plan, false, None).await;
+        assert_eq!(result.total, 1);
+        assert_eq!(result.succeeded, 0);
+        assert_eq!(result.failed, 1);
+    }
+
+    #[tokio::test]
+    async fn execute_plan_dry_run_sends_no_commands() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let img = dir.path().join("boot.img");
+        std::fs::write(&img, b"fake").unwrap();
+        let mut exec = mock_executor();
+        let plan = make_empty_plan(vec![
+            make_action("boot", img.to_str()),
+        ]);
+        let result = exec.execute_plan(&plan, true, None).await;
+        assert_eq!(result.total, 1);
+        assert_eq!(result.succeeded, 1);
+        // Only get_var for max-download-size, no download/flash commands
+        let cmds = exec.fb.commands();
+        assert!(cmds.iter().all(|c| c.starts_with("get_var:")), "dry run should only query vars, got: {cmds:?}");
+    }
+}
 

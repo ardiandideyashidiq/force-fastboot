@@ -6,7 +6,9 @@ use crate::flash::error::FlashError;
 use crate::flash::executor::FlashExecutor;
 use crate::flash::results::{FormatDataResult, FormatOutcome, FormatStatus};
 use crate::flash::sparse::CRYPT_FOOTER_OFFSET;
-use crate::format::generator::{self, FsType};
+use crate::flash::transport::FlashTransport;
+use crate::format::generator;
+use crate::format::generator::FsType;
 
 struct WiperConfig<'a> {
     fs_options: u32,
@@ -17,7 +19,7 @@ struct WiperConfig<'a> {
     clean_test: bool,
 }
 
-impl FlashExecutor {
+impl<T: FlashTransport> FlashExecutor<T> {
     /// Erase and format userdata, metadata, and cache.
     ///
     /// 1. Checks that we are in **fastbootd** mode (warns if not).
@@ -252,7 +254,7 @@ impl FlashExecutor {
             }
             Err(e) => Err(FormatOutcome {
                 partition: partition.into(),
-                status: FormatStatus::Failed(FlashError::from(e)),
+                status: FormatStatus::Failed(e),
             }),
         }
     }
@@ -275,7 +277,7 @@ impl FlashExecutor {
         if let Err(e) = self.fb.erase(partition).await {
             return FormatOutcome {
                 partition: partition.into(),
-                status: FormatStatus::Failed(FlashError::from(e)),
+                status: FormatStatus::Failed(e),
             };
         }
 
@@ -352,7 +354,11 @@ fn parse_getvar_hex_u64(s: &str) -> Option<u64> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
     use super::parse_getvar_hex_u64;
+    use crate::flash::mock::MockTransport;
+    use crate::flash::executor::FlashExecutor;
+    use crate::flash::results::FormatStatus;
 
     #[test]
     fn parse_getvar_hex_u64_should_accept_0x_prefix() {
@@ -383,5 +389,17 @@ mod tests {
     #[test]
     fn parse_getvar_hex_u64_should_return_none_for_invalid() {
         assert_eq!(parse_getvar_hex_u64("not_hex"), None);
+    }
+
+    #[tokio::test]
+    async fn format_data_handles_missing_partition() {
+        let fb = MockTransport::new();
+        let mut exec = FlashExecutor::new(fb, HashMap::new());
+        let result = exec.format_data(0, false, None).await;
+        // With no partition-type responses configured, all three partitions are skipped
+        assert_eq!(result.outcomes.len(), 3);
+        for outcome in &result.outcomes {
+            assert!(matches!(outcome.status, FormatStatus::Skipped(_)), "expected skipped, got {:?}", outcome.status);
+        }
     }
 }

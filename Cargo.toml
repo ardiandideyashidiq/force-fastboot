@@ -49,6 +49,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "registry"] }
 fastboot-protocol = { path = "vendor/fastboot-rs/fastboot-protocol" }
 android-sparse-image = { path = "vendor/fastboot-rs/android-sparse-image" }
 tempfile = "3"
+async-trait = "0.1"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
