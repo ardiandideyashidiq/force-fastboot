@@ -537,6 +537,12 @@ fn resolve_images_for_plan(
     if let Some(warning) = &resolved.warning {
         warnings.insert(0, warning.clone());
     }
+    if resolved.outside_package_root == Some(true) && options.mode != Mode::DryRun {
+        warnings.push(format!(
+            "image path outside package_root and was blocked: {}",
+            resolved.warning.as_deref().unwrap_or("unknown location")
+        ));
+    }
     (
         json!({
             "file_name": part.file_name,
