@@ -10,13 +10,17 @@ export function useTauriEvent<T = unknown>(
   handlerRef.current = handler;
 
   useEffect(() => {
-    let unlisten: UnlistenFn;
     let cancelled = false;
+    let unlisten: UnlistenFn | undefined;
 
     listen<T>(eventName, (event) => {
       if (!cancelled) handlerRef.current(event.payload);
     }).then((fn) => {
-      unlisten = fn;
+      if (cancelled) {
+        fn();
+      } else {
+        unlisten = fn;
+      }
     });
 
     return () => {
