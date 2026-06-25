@@ -84,11 +84,11 @@ export default function AppLayout({
         {/* Brand + collapse */}
         <div className="flex items-center justify-between shrink-0 px-3 pt-4 pb-3">
           {sidebarOpen ? (
-            <span className="text-[0.7rem] font-semibold tracking-[0.22em] text-muted-foreground/70 uppercase">
+            <span className="text-caption font-semibold tracking-overline text-muted-foreground/70 uppercase">
               pawflash
             </span>
           ) : (
-            <span className="flex size-7 items-center justify-center rounded-md bg-accent-brand/20 text-[0.65rem] font-bold tracking-tight text-accent-brand">
+            <span className="flex size-7 items-center justify-center rounded-md bg-accent-brand/20 text-caption font-bold tracking-tight text-accent-brand">
               pw
             </span>
           )}

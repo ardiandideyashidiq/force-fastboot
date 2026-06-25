@@ -36,6 +36,13 @@
 @theme inline {
   --font-sans: 'Onest Variable', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono Variable', ui-monospace, monospace;
+  --text-caption: 0.6875rem;
+  --text-label: 0.75rem;
+  --text-body: 0.8125rem;
+  --text-title: 0.9375rem;
+  --text-display: 1.0625rem;
+  --tracking-label: 0.12em;
+  --tracking-overline: 0.2em;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -197,11 +204,11 @@
   }
 
   .panel-chip {
-    @apply inline-flex rounded-sm bg-accent-soft px-2.5 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-accent-soft-foreground;
+    @apply inline-flex rounded-sm bg-accent-soft px-2.5 py-1 text-label font-semibold uppercase tracking-overline text-accent-soft-foreground;
   }
 
   .panel-meta {
-    @apply text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground;
+    @apply text-label font-semibold uppercase tracking-label text-muted-foreground;
   }
 
   .status-shell {

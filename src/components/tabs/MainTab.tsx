@@ -103,10 +103,10 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
             <Zap size={20} />
           </span>
           <div className="min-w-0 flex-1">
-            <h2 className="text-[0.8125rem] font-semibold text-foreground">
+            <h2 className="text-body font-semibold text-foreground">
               Force Fastboot
             </h2>
-            <p className="mt-1 text-[0.75rem] text-muted-foreground leading-relaxed max-w-md">
+            <p className="mt-1 text-label text-muted-foreground leading-relaxed max-w-md">
               Force a MediaTek device into fastboot mode via preloader serial handshake.
             </p>
             <div className="mt-3 flex items-center gap-3">
@@ -126,7 +126,7 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
                 {connecting ? "Connecting..." : "Force Fastboot"}
               </Button>
               <span className={`size-1.5 rounded-full ${connected ? "dot-complete" : "dot-waiting"}`} />
-              <span className="text-[0.7rem] text-muted-foreground">
+              <span className="text-caption text-muted-foreground">
                 {connected ? "Device online" : "No device"}
               </span>
             </div>
@@ -134,7 +134,7 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
         </div>
         {/* Connected device info strip */}
         {connected && (
-          <div className="border-t border-border/50 px-4 py-2 flex items-center gap-4 text-[0.7rem] text-muted-foreground/80 bg-muted/20">
+          <div className="border-t border-border/50 px-4 py-2 flex items-center gap-4 text-caption text-muted-foreground/80 bg-muted/20">
             <span className="font-mono text-accent-brand/70">{device?.serial ?? "—"}</span>
             <span className="w-px h-3 bg-border/50" />
             <span>{vars.product ?? "—"}</span>
@@ -152,7 +152,7 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
       <section className="flex items-center justify-between gap-4 rounded-md border border-border/60 bg-card/80 px-4 py-3">
         <div className="flex items-center gap-3 min-w-0">
           <Lock size={14} className="shrink-0 text-muted-foreground" />
-          <span className="text-[0.8125rem] font-medium text-foreground/90">Bootloader</span>
+          <span className="text-body font-medium text-foreground/90">Bootloader</span>
         </div>
         <div className="flex items-center gap-1.5">
           <Button
@@ -196,7 +196,7 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
       <section className="flex items-center justify-between gap-4 rounded-md border border-border/60 bg-card/80 px-4 py-3">
         <div className="flex items-center gap-3 min-w-0">
           <Cpu size={14} className="shrink-0 text-muted-foreground" />
-          <span className="text-[0.8125rem] font-medium text-foreground/90">Active Slot</span>
+          <span className="text-body font-medium text-foreground/90">Active Slot</span>
         </div>
         <div className="flex rounded-md border border-border/60 overflow-hidden">
           {["a", "b"].map((slot) => (
@@ -205,7 +205,7 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
               onClick={() => handleSetSlot(slot)}
               disabled={!connected}
               className={
-                `px-3 py-1 text-[0.75rem] font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ` +
+                `px-3 py-1 text-label font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ` +
                 (vars["current-slot"] === slot
                   ? "bg-accent-brand text-accent-brand-foreground"
                   : "bg-transparent text-muted-foreground hover:text-foreground hover:bg-muted/40")
@@ -221,7 +221,7 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
       <section className="rounded-md border border-border/60 bg-card/80 px-4 py-3">
         <Label
           htmlFor="var-name"
-          className="text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-2 block"
+          className="text-caption font-semibold uppercase tracking-label text-muted-foreground mb-2 block"
         >
           Get Variable
         </Label>
@@ -233,7 +233,7 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
               value={varName}
               onChange={(e) => setVarName(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleGetVar()}
-              className="text-[0.8125rem]"
+              className="text-body"
             />
           </div>
           <Button
@@ -247,7 +247,7 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
         </div>
         {varResult && (
           <div className="mt-2 rounded border border-border/50 bg-muted/30 px-2.5 py-1.5">
-            <code className="font-mono text-[0.75rem] text-foreground/80">{varResult}</code>
+            <code className="font-mono text-label text-foreground/80">{varResult}</code>
           </div>
         )}
       </section>

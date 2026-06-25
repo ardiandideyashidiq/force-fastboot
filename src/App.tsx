@@ -101,15 +101,15 @@ function App() {
                 {connected && (
                   <div className="text-muted-foreground space-y-0.5">
                     <div>
-                      <span className="tracking-[0.1em] uppercase">Serial</span>{" "}
+                      <span className="tracking-label uppercase">Serial</span>{" "}
                       {device?.serial ?? "—"}
                     </div>
                     <div>
-                      <span className="tracking-[0.1em] uppercase">Product</span>{" "}
+                      <span className="tracking-label uppercase">Product</span>{" "}
                       {vars.product ?? "—"}
                     </div>
                     <div>
-                      <span className="tracking-[0.1em] uppercase">Slot</span>{" "}
+                      <span className="tracking-label uppercase">Slot</span>{" "}
                       {vars["current-slot"] ?? "—"}
                     </div>
                   </div>

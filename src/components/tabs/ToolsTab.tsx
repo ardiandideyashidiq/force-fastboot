@@ -140,7 +140,7 @@ export default function ToolsTab() {
             <FileText size={16} />
           </span>
           <div className="min-w-0 flex-1">
-            <h2 className="text-[0.8125rem] font-semibold text-foreground">
+            <h2 className="text-body font-semibold text-foreground">
               Scatter File
             </h2>
             <div className="mt-2 flex items-center gap-2">
@@ -149,19 +149,19 @@ export default function ToolsTab() {
                 Select
               </Button>
               {scatterPath && (
-                <span className="text-[0.7rem] font-mono text-muted-foreground truncate max-w-[20rem]">
+                <span className="text-caption font-mono text-muted-foreground truncate max-w-[20rem]">
                   {scatterPath}
                 </span>
               )}
             </div>
 
             {scatterLoading && (
-              <p className="mt-2 text-[0.75rem] text-muted-foreground">Parsing...</p>
+              <p className="mt-2 text-label text-muted-foreground">Parsing...</p>
             )}
 
             {scatterMeta && (
               <div className="mt-3 space-y-3">
-                <div className="grid grid-cols-3 gap-x-4 gap-y-1.5 text-[0.75rem]">
+                <div className="grid grid-cols-3 gap-x-4 gap-y-1.5 text-label">
                   <div>
                     <span className="text-muted-foreground">Platform</span>
                     <p className="font-medium">{scatterMeta.platform ?? "—"}</p>
@@ -212,9 +212,9 @@ export default function ToolsTab() {
         <div className="flex items-center gap-3 min-w-0">
           <Gauge size={14} className="shrink-0 text-muted-foreground" />
           <div className="min-w-0">
-            <p className="text-[0.8125rem] font-medium text-foreground/90">GSI Flash</p>
+            <p className="text-body font-medium text-foreground/90">GSI Flash</p>
             {gsiPath && (
-              <p className="text-[0.7rem] font-mono text-muted-foreground truncate max-w-[14rem]">
+              <p className="text-caption font-mono text-muted-foreground truncate max-w-[14rem]">
                 {gsiPath}
               </p>
             )}
@@ -241,11 +241,11 @@ export default function ToolsTab() {
         <section className="flex items-center justify-between gap-3 rounded-md border border-border/60 bg-card/80 px-4 py-3">
           <div className="flex items-center gap-3 min-w-0">
             <HardDrive size={14} className="shrink-0 text-muted-foreground" />
-            <span className="text-[0.8125rem] font-medium text-foreground/90">Format Data</span>
+            <span className="text-body font-medium text-foreground/90">Format Data</span>
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
             <select
-              className="h-7 rounded-md border border-input bg-transparent px-2 text-[0.75rem] text-foreground/80 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 outline-none"
+              className="h-7 rounded-md border border-input bg-transparent px-2 text-label text-foreground/80 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 outline-none"
               value={formatFsType}
               onChange={(e) => setFormatFsType(e.target.value)}
             >
@@ -276,8 +276,8 @@ export default function ToolsTab() {
           <div className="flex items-center gap-3 min-w-0">
             <ShieldOff size={14} className="shrink-0 text-muted-foreground" />
             <div>
-              <p className="text-[0.8125rem] font-medium text-foreground/90">Disable AVB</p>
-              <p className="text-[0.65rem] text-muted-foreground/70 leading-tight">
+              <p className="text-body font-medium text-foreground/90">Disable AVB</p>
+              <p className="text-caption text-muted-foreground/70 leading-tight">
                 dm-verity + AVB
               </p>
             </div>
