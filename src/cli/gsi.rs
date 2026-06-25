@@ -30,7 +30,7 @@ pub async fn run(image: &Path, clean_test: bool) -> Result<()> {
     let mut gsi_progress = output::gsi_progress::GsiProgress::new();
     let report = |event: GsiEvent| gsi_progress.report(&event);
 
-    let outcome = crate::gsi::execute_gsi_flash(executor, &image, clean_test, report).await?;
+    let outcome = crate::gsi::execute_gsi_flash(executor, &image, clean_test, None, report).await?;
 
     gsi_progress.finish();
 

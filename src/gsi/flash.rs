@@ -1,7 +1,8 @@
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::path::Path;
-
-use std::cell::Cell;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use android_sparse_image::{FileHeader, FILE_HEADER_BYTES_LEN};
 use anyhow::{bail, Context, Result};
@@ -176,6 +177,16 @@ async fn transition_mode(
 
 // ── Top-level entry point ────────────────────────────────────────────
 
+#[allow(clippy::ref_option)]
+fn check_cancelled(cancel_token: &Option<Arc<AtomicBool>>) -> Result<()> {
+    if let Some(token) = cancel_token {
+        if token.load(std::sync::atomic::Ordering::Relaxed) {
+            anyhow::bail!("GSI flash cancelled by user");
+        }
+    }
+    Ok(())
+}
+
 /// Execute the full GSI flash workflow.
 ///
 /// Takes ownership of the executor, runs the state machine, and returns the
@@ -189,10 +200,12 @@ async fn transition_mode(
 ///
 /// Returns an error if image validation, mode transitions, partition
 /// resolution, vbmeta flash, userdata wipe, or GSI flash fails.
+#[allow(clippy::too_many_lines, clippy::cast_possible_truncation)]
 pub async fn execute_gsi_flash(
     mut executor: FlashExecutor,
     image: &Path,
     clean_test: bool,
+    cancel_token: Option<Arc<AtomicBool>>,
     mut user_report: impl FnMut(GsiEvent),
 ) -> Result<GsiFlashOutcome> {
     let vars = executor.device_vars().clone();
@@ -229,69 +242,67 @@ pub async fn execute_gsi_flash(
     let tools_dir = extract_tools()?;
     let tools_root = tools_dir.path().to_path_buf();
 
-    match mode {
-        FastbootMode::Bootloader => {
-            // ── Phase 1: bootloader-only operations ────────────────
-            report(GsiEvent::Step(GsiStep::PreparingVbmetaFlash));
-            report(GsiEvent::Step(GsiStep::FlashingVbmeta));
-            executor.flash_empty_vbmeta().await?;
+    enum GsiStage {
+        FlashVbmeta,
+        WipeUserdata,
+        FlashSystem,
+    }
 
-            report(GsiEvent::Step(GsiStep::WipingUserdata));
-            executor.format_data(0, clean_test, None).await;
+    // Determine which mode each stage group requires and their order.
+    // Bootloader-first: vbmeta + wipe in bootloader, then transition to fastbootd for flash.
+    // Fastbootd-first: flash in fastbootd, then transition to bootloader for vbmeta + wipe.
+    let stage_groups: Vec<(FastbootMode, Vec<GsiStage>)> = match mode {
+        FastbootMode::Bootloader => vec![
+            (FastbootMode::Bootloader, vec![GsiStage::FlashVbmeta, GsiStage::WipeUserdata]),
+            (FastbootMode::Fastbootd, vec![GsiStage::FlashSystem]),
+        ],
+        FastbootMode::Fastbootd => vec![
+            (FastbootMode::Fastbootd, vec![GsiStage::FlashSystem]),
+            (FastbootMode::Bootloader, vec![GsiStage::FlashVbmeta, GsiStage::WipeUserdata]),
+        ],
+    };
 
-            // Transition to fastbootd where logical partitions are visible.
-            executor = transition_mode(executor, FastbootMode::Fastbootd, &mut report).await?;
-
-            // ── Phase 2: fastbootd-only operations ─────────────────
-            let (system_partition, system_size) = resolve_system_partition(&mut executor).await?;
-            report(GsiEvent::ResolvedPartition {
-                base: "system",
-                partition: system_partition.clone(),
-                size_bytes: system_size,
-            });
-
-            let product_overflow_size = product_gsi_overflow_size(system_size, gsi_expanded_size);
-            flash_system_and_product(
-                &mut executor,
-                image,
-                gsi_expanded_size,
-                &system_partition,
-                product_overflow_size,
-                &tools_root,
-                &mut report,
-            )
-            .await?;
+    for (required_mode, stages) in stage_groups {
+        // Transition mode if needed.
+        if detect_fastboot_mode(executor.device_vars()) != required_mode {
+            check_cancelled(&cancel_token)?;
+            executor = transition_mode(executor, required_mode, &mut report).await?;
         }
-        FastbootMode::Fastbootd => {
-            // ── Phase 1: fastbootd-only operations ─────────────────
-            let (system_partition, system_size) = resolve_system_partition(&mut executor).await?;
-            report(GsiEvent::ResolvedPartition {
-                base: "system",
-                partition: system_partition.clone(),
-                size_bytes: system_size,
-            });
 
-            let product_overflow_size = product_gsi_overflow_size(system_size, gsi_expanded_size);
-            flash_system_and_product(
-                &mut executor,
-                image,
-                gsi_expanded_size,
-                &system_partition,
-                product_overflow_size,
-                &tools_root,
-                &mut report,
-            )
-            .await?;
+        for stage in &stages {
+            check_cancelled(&cancel_token)?;
+            match stage {
+                GsiStage::FlashVbmeta => {
+                    report(GsiEvent::Step(GsiStep::PreparingVbmetaFlash));
+                    report(GsiEvent::Step(GsiStep::FlashingVbmeta));
+                    executor.flash_empty_vbmeta().await?;
+                }
+                GsiStage::WipeUserdata => {
+                    report(GsiEvent::Step(GsiStep::WipingUserdata));
+                    executor.format_data(0, clean_test, None).await;
+                }
+                GsiStage::FlashSystem => {
+                    let (system_partition, system_size) = resolve_system_partition(&mut executor).await?;
+                    report(GsiEvent::ResolvedPartition {
+                        base: "system",
+                        partition: system_partition.clone(),
+                        size_bytes: system_size,
+                    });
 
-            // ── Phase 2: bootloader-only operations ────────────────
-            executor = transition_mode(executor, FastbootMode::Bootloader, &mut report).await?;
-
-            report(GsiEvent::Step(GsiStep::PreparingVbmetaFlash));
-            report(GsiEvent::Step(GsiStep::FlashingVbmeta));
-            executor.flash_empty_vbmeta().await?;
-
-            report(GsiEvent::Step(GsiStep::WipingUserdata));
-            executor.format_data(0, clean_test, None).await;
+                    let product_overflow_size = product_gsi_overflow_size(system_size, gsi_expanded_size);
+                    flash_system_and_product(
+                        &mut executor,
+                        image,
+                        gsi_expanded_size,
+                        &system_partition,
+                        product_overflow_size,
+                        &tools_root,
+                        &cancel_token,
+                        &mut report,
+                    )
+                    .await?;
+                }
+            }
         }
     }
 
@@ -328,6 +339,7 @@ fn extract_tools() -> Result<TempDir> {
 /// expanded to fit the GSI. Both resizes are explicit because sparse-split
 /// flashing writes past the original partition boundary — the device
 /// rejects writes beyond the current size.
+#[allow(clippy::ref_option, clippy::too_many_arguments)]
 async fn flash_system_and_product(
     executor: &mut FlashExecutor,
     image: &Path,
@@ -335,8 +347,10 @@ async fn flash_system_and_product(
     system_partition: &str,
     product_overflow_size: u64,
     tools_root: &Path,
+    cancel_token: &Option<Arc<AtomicBool>>,
     report: &mut impl FnMut(GsiEvent),
 ) -> Result<()> {
+    check_cancelled(cancel_token)?;
     report(GsiEvent::Step(GsiStep::CheckingProductGsiFallback));
 
     let file_size = tokio::fs::metadata(image).await?.len();
@@ -348,6 +362,7 @@ async fn flash_system_and_product(
         let is_product_logical = executor.is_logical(&product_partition).await.unwrap_or(false);
         let is_system_logical = executor.is_logical(system_partition).await.unwrap_or(false);
 
+        check_cancelled(cancel_token)?;
         if is_product_logical {
             debug!(partition = %product_partition, size = MINIMAL_PRODUCT_GSI_SIZE, "shrinking product to free super space");
             executor.resize_logical_partition(&product_partition, MINIMAL_PRODUCT_GSI_SIZE).await?;
@@ -358,9 +373,11 @@ async fn flash_system_and_product(
         }
 
         // Phase 2: generate minimal product_gsi and flash both partitions
+        check_cancelled(cancel_token)?;
         report(GsiEvent::Step(GsiStep::GeneratingProductGsiImage));
         let (_tmpdir, product_image) = generate_product_gsi_image(tools_root)?;
 
+        check_cancelled(cancel_token)?;
         report(GsiEvent::Step(GsiStep::FlashingProductGsi));
         report(GsiEvent::Flashing {
             partition: product_partition.clone(),
@@ -368,6 +385,7 @@ async fn flash_system_and_product(
         });
         executor.flash_raw_image(&product_partition, &product_image).await?;
 
+        check_cancelled(cancel_token)?;
         report(GsiEvent::Step(GsiStep::FlashingSystemGsi));
         report(GsiEvent::Flashing {
             partition: system_partition.to_string(),
@@ -375,6 +393,7 @@ async fn flash_system_and_product(
         });
         executor.flash_raw_image(system_partition, image).await?;
     } else {
+        check_cancelled(cancel_token)?;
         report(GsiEvent::Step(GsiStep::ProductGsiFallbackNotNeeded));
         report(GsiEvent::Step(GsiStep::FlashingSystemGsi));
         report(GsiEvent::Flashing {
@@ -385,4 +404,62 @@ async fn flash_system_and_product(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[test]
+    fn product_gsi_overflow_size_zero_when_gsi_fits() {
+        assert_eq!(product_gsi_overflow_size(100, 50), 0);
+    }
+
+    #[test]
+    fn product_gsi_overflow_size_rounded_to_mb() {
+        let result = product_gsi_overflow_size(100, 100 + 500);
+        assert_eq!(result, 1024 * 1024);
+    }
+
+    #[test]
+    fn product_gsi_overflow_size_exact_mb_when_exact() {
+        assert_eq!(
+            product_gsi_overflow_size(100, 100 + 5 * 1024 * 1024),
+            5 * 1024 * 1024
+        );
+    }
+
+    #[test]
+    fn detect_fastboot_mode_bootloader_when_no_userspace() {
+        let vars = HashMap::new();
+        assert_eq!(detect_fastboot_mode(&vars), FastbootMode::Bootloader);
+    }
+
+    #[test]
+    fn detect_fastboot_mode_fastbootd_when_yes() {
+        let mut vars = HashMap::new();
+        vars.insert("is-userspace".to_string(), "yes".to_string());
+        assert_eq!(detect_fastboot_mode(&vars), FastbootMode::Fastbootd);
+    }
+
+    #[test]
+    fn detect_fastboot_mode_bootloader_when_no() {
+        let mut vars = HashMap::new();
+        vars.insert("is-userspace".to_string(), "no".to_string());
+        assert_eq!(detect_fastboot_mode(&vars), FastbootMode::Bootloader);
+    }
+
+    #[test]
+    fn detect_fastboot_mode_accepts_truthy_values() {
+        for val in &["true", "1", "on"] {
+            let mut vars = HashMap::new();
+            vars.insert("is-userspace".to_string(), val.to_string());
+            assert_eq!(
+                detect_fastboot_mode(&vars),
+                FastbootMode::Fastbootd,
+                "should accept '{val}' as fastbootd"
+            );
+        }
+    }
 }

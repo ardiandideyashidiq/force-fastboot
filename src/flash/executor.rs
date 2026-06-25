@@ -1,11 +1,24 @@
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 use fastboot_protocol::nusb::NusbFastBoot;
 use indicatif::ProgressBar;
 use tokio::io::AsyncReadExt;
 use tracing::{debug, info, warn};
+
+static EXPECTED_SERIAL: OnceLock<String> = OnceLock::new();
+
+/// Set an expected device serial number to verify against when connecting.
+/// When set, `connect()` will filter devices and reject mismatches.
+pub fn set_expected_serial(serial: &str) {
+    _ = EXPECTED_SERIAL.set(serial.to_string());
+}
+
+fn expected_serial() -> Option<&'static str> {
+    EXPECTED_SERIAL.get().map(String::as_str)
+}
 
 use crate::flash::error::FlashError;
 use crate::flash::error::Result;
@@ -44,10 +57,17 @@ impl FlashExecutor {
     /// Connect to the first available fastboot device and query its variables.
     /// If more than one device is found, emits a warning suggesting the user
     /// disconnect extras to avoid targeting the wrong device.
+    /// When `EXPECTED_SERIAL` is set, only devices with matching serials are
+    /// considered; a `DeviceMismatch` error is returned if no device matches.
     pub async fn connect() -> Result<Self> {
+        let expected = expected_serial();
+
         let all: Vec<_> = fastboot_protocol::nusb::devices()
             .await
             .map_err(|_| FlashError::NoDevice)?
+            .filter(|info| {
+                expected.is_none_or(|exp| info.serial_number() == Some(exp))
+            })
             .collect();
 
         if all.len() > 1 {
@@ -63,6 +83,7 @@ impl FlashExecutor {
             crate::flash::diagnostics::diagnose_fastboot_sysfs();
             FlashError::NoDevice
         })?;
+
 
         debug!(
             vidpid = format_args!("{:04x}:{:04x}", info.vendor_id(), info.product_id()),
@@ -109,6 +130,24 @@ impl FlashExecutor {
         } else {
             device_vars
         };
+
+        // Verify serial number matches expected value, if set.
+        if let Some(expected) = expected {
+            match device_vars.get("serialno").map(String::as_str) {
+                Some(s) if s == expected => {
+                    debug!(serial = %s, "device serial matches expected");
+                }
+                Some(s) => {
+                    return Err(FlashError::DeviceMismatch {
+                        expected: expected.to_string(),
+                        actual: s.to_string(),
+                    });
+                }
+                None => {
+                    warn!("--serial set but device did not report serialno; proceeding");
+                }
+            }
+        }
 
         info!(
             product = device_vars.get("product").map_or("?", |s| s.as_str()),
@@ -211,7 +250,7 @@ impl FlashExecutor {
 
         for action in &all_actions {
             let partition = &action.partition;
-            info!(%partition, "Writing '{partition}' ...");
+            info!(%partition, "Writing partition");
 
             let start = Instant::now();
             let result = self
@@ -321,6 +360,7 @@ impl FlashExecutor {
     /// access (`partition-type:` / `partition-size:` queries), and proper
     /// crypto footer handling.
     pub async fn ensure_fastbootd(mut self) -> Result<Self> {
+        #[allow(clippy::map_unwrap_or)]
         let is_fastbootd = self
             .fb
             .get_var("is-userspace")
@@ -477,7 +517,7 @@ impl FlashExecutor {
     ) -> Result<String> {
         debug!(%partition, file_size = size, "flashing raw partition");
         let mut file = tokio::fs::File::open(path).await?;
-        let mut sender = self.fb.download(size).await?;
+        let mut dl = crate::flash::session::FlashDownload::begin(&mut self.fb, size).await?;
 
         let mut buf = vec![0u8; 1024 * 1024];
         let mut written = 0u64;
@@ -486,14 +526,14 @@ impl FlashExecutor {
             if n == 0 {
                 break;
             }
-            sender.extend_from_slice(&buf[..n]).await?;
+            dl.extend(&buf[..n]).await?;
             written += n as u64;
             if let Some(pb) = progress_bar {
                 pb.set_position(written);
             }
         }
 
-        sender.finish().await?;
+        dl.finish().await?;
         let resp = self.fb.flash(partition).await?;
         if let Some(pb) = progress_bar {
             pb.set_position(u64::from(size));

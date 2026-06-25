@@ -164,7 +164,9 @@ async fn run_scatter(cfg: &ScatterConfig<'_>) -> Result<()> {
         groups: cfg.groups.to_vec(),
         exclude: cfg.exclude.to_vec(),
         firmware_dir: cfg.firmware_dir.map(Path::to_path_buf),
-        package_root: None,
+        package_root: Some(cfg.scatter_path.parent()
+            .unwrap_or_else(|| std::path::Path::new("."))
+            .to_path_buf()),
         check_images: cfg.check_images,
         image_search: cfg.image_search,
         include_preloader: cfg.include_preloader,
@@ -229,7 +231,12 @@ async fn run_scatter(cfg: &ScatterConfig<'_>) -> Result<()> {
         "flash execution summary",
     );
 
-    output::status::stderr(output::tables::flash_result(&result));
+    if cfg.json {
+        let json_output = serde_json::to_string_pretty(&result)?;
+        output::status::data(&json_output);
+    } else {
+        output::status::stderr(output::tables::flash_result(&result));
+    }
 
     if result.failed > 0 {
         bail!(

@@ -3,6 +3,7 @@ pub mod error;
 pub mod executor;
 pub mod format;
 pub mod results;
+pub mod session;
 pub mod sparse;
 pub mod vbmeta;
 

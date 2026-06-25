@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 use thiserror::Error;
 
+
+
 #[derive(Error, Debug)]
 pub enum FlashError {
     #[error("no fastboot device found")]
@@ -41,6 +43,12 @@ pub enum FlashError {
 
     #[error("sparse image truncated: read {read} of {expected} bytes")]
     SparseTruncated { read: usize, expected: usize },
+}
+
+impl serde::Serialize for FlashError {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+        serializer.collect_str(&self.to_string())
+    }
 }
 
 pub type Result<T> = std::result::Result<T, FlashError>;

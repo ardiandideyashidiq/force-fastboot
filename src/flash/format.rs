@@ -35,6 +35,7 @@ impl FlashExecutor {
         let partitions = ["userdata", "metadata", "cache"];
 
         // Warn if not in fastbootd — caller should have transitioned.
+        #[allow(clippy::map_unwrap_or)]
         let is_fastbootd = self
             .fb
             .get_var("is-userspace")
@@ -178,7 +179,7 @@ impl FlashExecutor {
                 continue;
             }
             match self.fb.flash(part).await {
-                Ok(resp) => info!(partition = *part, response = %resp, "BCB cleared on {part}"),
+                Ok(resp) =>             info!(partition = *part, response = %resp, "BCB cleared"),
                 Err(e) => warn!(partition = *part, error = %e, "BCB flash failed"),
             }
             return; // success on first writable partition
@@ -240,12 +241,12 @@ impl FlashExecutor {
                 None if partition == "userdata" => {
                     // MTK fastbootd often reports "raw" — default to f2fs
                     // (Android 11+ standard for userdata).
-                    info!(%partition, %partition_type, "defaulting to f2fs (reported as {partition_type})");
+                    info!(%partition, reported = %partition_type, "defaulting to f2fs");
                     FsType::F2fs
                 }
                 None if ["metadata", "cache"].contains(&partition) => {
                     // Metadata/cache are always ext4 per AOSP convention.
-                    info!(%partition, %partition_type, "defaulting to ext4 (reported as {partition_type})");
+                    info!(%partition, reported = %partition_type, "defaulting to ext4");
                     FsType::Ext4
                 }
                 None => {
@@ -336,4 +337,40 @@ fn parse_getvar_hex_u64(s: &str) -> Option<u64> {
         return None;
     }
     u64::from_str_radix(s, 16).ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_getvar_hex_u64;
+
+    #[test]
+    fn parse_getvar_hex_u64_should_accept_0x_prefix() {
+        assert_eq!(parse_getvar_hex_u64("0x100000"), Some(0x0010_0000));
+    }
+
+    #[test]
+    fn parse_getvar_hex_u64_should_accept_upper_x_prefix() {
+        assert_eq!(parse_getvar_hex_u64("0X200000"), Some(0x0020_0000));
+    }
+
+    #[test]
+    fn parse_getvar_hex_u64_should_accept_no_prefix() {
+        assert_eq!(parse_getvar_hex_u64("abcdef"), Some(0x00ab_cdef));
+    }
+
+    #[test]
+    fn parse_getvar_hex_u64_should_trim_whitespace() {
+        assert_eq!(parse_getvar_hex_u64("  0x100  "), Some(0x100));
+    }
+
+    #[test]
+    fn parse_getvar_hex_u64_should_return_none_for_empty() {
+        assert_eq!(parse_getvar_hex_u64(""), None);
+        assert_eq!(parse_getvar_hex_u64("0x"), None);
+    }
+
+    #[test]
+    fn parse_getvar_hex_u64_should_return_none_for_invalid() {
+        assert_eq!(parse_getvar_hex_u64("not_hex"), None);
+    }
 }

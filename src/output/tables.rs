@@ -295,3 +295,31 @@ pub fn format_result(partition: &str, succeeded: usize) -> String {
         super::theme::dim(&wiped),
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::fmt_duration;
+    use std::time::Duration;
+
+    #[test]
+    fn fmt_duration_under_60_seconds_shows_seconds() {
+        let result = fmt_duration(&Duration::from_secs_f64(12.345));
+        assert!(result.contains("12.345"), "expected 12.345s in output: {result}");
+        assert!(result.ends_with(']'), "expected trailing bracket");
+    }
+
+    #[test]
+    fn fmt_duration_over_60_seconds_shows_minutes() {
+        let d = Duration::from_secs(125);
+        let result = fmt_duration(&d);
+        assert!(result.contains("2m"), "expected 2m: {result}");
+        assert!(result.contains("5s"), "expected 5s: {result}");
+    }
+
+    #[test]
+    fn fmt_duration_exactly_60_seconds_shows_minutes() {
+        let d = Duration::from_secs(60);
+        let result = fmt_duration(&d);
+        assert!(result.contains("1m"), "expected 1m: {result}");
+    }
+}

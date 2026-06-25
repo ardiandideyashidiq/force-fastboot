@@ -88,6 +88,9 @@ pub async fn run(scatter_path: &Path, exclude: &[String], clean: bool, no_format
             image_search: true,
             exclude: exclude.to_vec(),
             clean: clean || clean_test,
+            package_root: Some(scatter_path.parent()
+                .unwrap_or_else(|| std::path::Path::new("."))
+                .to_path_buf()),
             ..Default::default()
         },
     );

@@ -31,7 +31,7 @@ perf = "deny"
 [dependencies]
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
-colored = "3"
+owo-colors = "4"
 console = "0.16"
 encoding_rs = "0.8"
 indicatif = "0.17"

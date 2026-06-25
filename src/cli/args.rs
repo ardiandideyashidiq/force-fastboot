@@ -9,6 +9,10 @@ pub struct Cli {
     /// Logging verbosity: -v = info, -vv = debug, -vvv = trace
     #[arg(short, long, global = true, action = clap::ArgAction::Count)]
     pub verbose: u8,
+    /// Expected device serial number; when set, verifies the connected device
+    /// matches and rejects non-matching devices.
+    #[arg(long, global = true)]
+    pub serial: Option<String>,
     #[command(subcommand)]
     pub command: Option<Commands>,
 }

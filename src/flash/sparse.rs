@@ -148,17 +148,17 @@ pub(crate) async fn flash_sparse_image(
                 std::io::ErrorKind::InvalidData,
                 "sparse split size exceeds u32 range",
             )))?;
-        let mut sender = fb.download(sparse_size).await?;
+        let mut dl = crate::flash::session::FlashDownload::begin(fb, sparse_size).await?;
 
         // file header for this split
-        sender.extend_from_slice(&split.header.to_bytes()).await?;
+        dl.extend(&split.header.to_bytes()).await?;
         if let Some(pb) = progress_bar {
             pb.inc(FILE_HEADER_BYTES_LEN as u64);
         }
 
         // chunk headers + data for each chunk in this split
         for chunk in &split.chunks {
-            sender.extend_from_slice(&chunk.header.to_bytes()).await?;
+            dl.extend(&chunk.header.to_bytes()).await?;
             if let Some(pb) = progress_bar {
                 pb.inc(CHUNK_HEADER_BYTES_LEN as u64);
             }
@@ -171,7 +171,7 @@ pub(crate) async fn flash_sparse_image(
                 while remaining > 0 {
                     let to_read = buf.len().min(remaining);
                     read_exact_padded_or_truncate(&mut file, &mut buf[..to_read], chunk.size).await?;
-                    sender.extend_from_slice(&buf[..to_read]).await?;
+                    dl.extend(&buf[..to_read]).await?;
                     if let Some(pb) = progress_bar {
                         pb.inc(to_read as u64);
                     }
@@ -180,7 +180,7 @@ pub(crate) async fn flash_sparse_image(
             }
         }
 
-        sender.finish().await?;
+        dl.finish().await?;
         last_resp = fb.flash(partition).await?;
     }
 
@@ -230,15 +230,15 @@ pub(crate) async fn flash_sparse_wrapped(
                 "sparse split size exceeds u32 range",
             )))?;
         info!(%partition, part = i, sparse_size, max_download, "downloading split via fb.download");
-        let mut sender = fb.download(sparse_size).await?;
+        let mut dl = crate::flash::session::FlashDownload::begin(fb, sparse_size).await?;
         info!(%partition, part = i, "fb.download returned successfully");
 
         // file header for this split
-        sender.extend_from_slice(&split.header.to_bytes()).await?;
+        dl.extend(&split.header.to_bytes()).await?;
 
         // chunk headers + data for each chunk in this split
         for chunk in &split.chunks {
-            sender.extend_from_slice(&chunk.header.to_bytes()).await?;
+            dl.extend(&chunk.header.to_bytes()).await?;
 
             if chunk.size > 0 {
                 file.seek(SeekFrom::Start(chunk.offset as u64)).await?;
@@ -252,13 +252,13 @@ pub(crate) async fn flash_sparse_wrapped(
                     // past the end of the file for block alignment.  Zero-filling
                     // the tail is correct.
                     read_exact_padded(&mut file, &mut buf[..to_read]).await?;
-                    sender.extend_from_slice(&buf[..to_read]).await?;
+                    dl.extend(&buf[..to_read]).await?;
                     remaining = remaining.saturating_sub(to_read);
                 }
             }
         }
 
-        sender.finish().await?;
+        dl.finish().await?;
         last_resp = fb.flash(partition).await?;
     }
 
@@ -308,8 +308,13 @@ pub(crate) async fn sparse_wrap_file(
 
     // Extend the output file to effective_size. On Linux this creates a
     // sparse file (holes) so the extra space costs no disk I/O.
+    // Note: OpenOptions::write(true) (without create(true)/truncate(true))
+    // preserves the existing filesystem data written by generate_empty_fs.
     {
-        let f = tokio::fs::File::create(path).await?;
+        let f = tokio::fs::OpenOptions::new()
+            .write(true)
+            .open(path)
+            .await?;
         f.set_len(effective_size).await?;
         drop(f);
     }
@@ -363,11 +368,11 @@ pub(crate) async fn sparse_wrap_file(
     // ---- send ----
     let mut file = tokio::fs::File::open(path).await?;
 
-    let mut sender = fb.download(sparse_size).await?;
-    sender.extend_from_slice(&header.to_bytes()).await?;
+    let mut dl = crate::flash::session::FlashDownload::begin(fb, sparse_size).await?;
+    dl.extend(&header.to_bytes()).await?;
 
     for chunk in &chunks {
-        sender.extend_from_slice(&chunk.header.to_bytes()).await?;
+        dl.extend(&chunk.header.to_bytes()).await?;
         if chunk.size > 0 {
             file.seek(SeekFrom::Start(chunk.offset as u64)).await?;
             let mut remaining = chunk.size;
@@ -375,13 +380,13 @@ pub(crate) async fn sparse_wrap_file(
             while remaining > 0 {
                 let to_read = buf.len().min(remaining);
                 read_exact_padded(&mut file, &mut buf[..to_read]).await?;
-                sender.extend_from_slice(&buf[..to_read]).await?;
+                dl.extend(&buf[..to_read]).await?;
                 remaining = remaining.saturating_sub(to_read);
             }
         }
     }
 
-    sender.finish().await?;
+    dl.finish().await?;
     let resp = fb.flash(partition).await?;
 
     debug!(%partition, sparse_size, response = resp, "full-scan sparse flash complete");
@@ -397,6 +402,7 @@ pub(crate) async fn sparse_wrap_file(
 /// The region from `effective_size` to `part_size` is always emitted as a
 /// DONTCARE chunk (bootloader writes zeros), matching TWRP's crypto-footer
 /// wipe behaviour.
+#[allow(clippy::too_many_lines, clippy::cast_possible_truncation)]
 fn scan_extents(
     path: &Path,
     scan_size: u64,
@@ -421,7 +427,11 @@ fn scan_extents(
             if offset >= effective_size {
                 break;
             }
-            let seek_offset = i64::try_from(offset).unwrap_or(i64::MAX);
+            let seek_offset = i64::try_from(offset)
+                .map_err(|_| FlashError::Io(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("seek offset {offset:#x} exceeds i64 range"),
+                )))?;
             let data_start = match unsafe { libc::lseek(fd, seek_offset, libc::SEEK_DATA) } {
                 -1 => {
                     let err = std::io::Error::last_os_error();
@@ -431,18 +441,25 @@ fn scan_extents(
                         }
                         break;
                     }
-                    return Err(FlashError::Io(std::io::Error::new(
-                        std::io::ErrorKind::Other,
+                    return Err(FlashError::Io(std::io::Error::other(
                         format!("SEEK_DATA at {offset:#x}: {err}"),
                     )));
                 }
-                pos => u64::try_from(pos).unwrap_or(u64::MAX),
+                pos => u64::try_from(pos)
+                    .map_err(|_| FlashError::Io(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        format!("SEEK_DATA returned position {pos} that exceeds u64 range"),
+                    )))?,
             };
             let aligned = (data_start / blk) * blk;
             if aligned > offset {
                 extents.push((offset, aligned - offset, false));
             }
-            let hole_seek = i64::try_from(aligned).unwrap_or(i64::MAX);
+            let hole_seek = i64::try_from(aligned)
+                .map_err(|_| FlashError::Io(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("hole seek offset {aligned:#x} exceeds i64 range"),
+                )))?;
             let hole_start =
                 match unsafe { libc::lseek(fd, hole_seek, libc::SEEK_HOLE) } {
                     -1 => {
@@ -450,13 +467,16 @@ fn scan_extents(
                         if err.raw_os_error() == Some(libc::ENXIO) {
                             effective_size
                         } else {
-                            return Err(FlashError::Io(std::io::Error::new(
-                                std::io::ErrorKind::Other,
-                                format!("SEEK_HOLE at {aligned:#x}: {err}"),
-                            )));
+                    return Err(FlashError::Io(std::io::Error::other(
+                        format!("SEEK_HOLE at {aligned:#x}: {err}"),
+                    )));
                         }
                     }
-                    pos => u64::try_from(pos).unwrap_or(u64::MAX),
+                    pos => u64::try_from(pos)
+                        .map_err(|_| FlashError::Io(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            format!("SEEK_HOLE returned position {pos} that exceeds u64 range"),
+                        )))?,
                 };
             let data_end = hole_start.min(effective_size);
             let len = data_end.saturating_sub(aligned);
@@ -551,4 +571,44 @@ fn scan_extents(
     }
 
     Ok(chunks)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::read_exact_padded;
+    use tokio::io::AsyncWriteExt;
+
+    #[test]
+    fn read_exact_padded_should_zero_fill_short_file() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("test.bin");
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let mut f = tokio::fs::File::create(&path).await.unwrap();
+            f.write_all(&[0xAB; 10]).await.unwrap();
+            drop(f);
+            let mut f = tokio::fs::File::open(&path).await.unwrap();
+            let mut buf = [0xFFu8; 16];
+            let n = read_exact_padded(&mut f, &mut buf).await.unwrap();
+            assert_eq!(n, 10, "should read 10 bytes from file");
+            assert_eq!(&buf[..10], &[0xAB; 10], "first 10 bytes are file data");
+            assert_eq!(&buf[10..], &[0u8; 6], "last 6 bytes are zero-padded");
+        });
+    }
+
+    #[test]
+    fn sparse_magic_constant_is_correct() {
+        assert_eq!(
+            android_sparse_image::HEADER_MAGIC,
+            0xED26_FF3A,
+            "sparse magic constant should match known value"
+        );
+    }
+
+    #[test]
+    #[allow(clippy::erasing_op)]
+    fn zero_partition_yields_zero_blocks() {
+        let blk = u64::from(android_sparse_image::DEFAULT_BLOCKSIZE);
+        assert_eq!(0u64 / blk, 0, "zero partition means zero blocks");
+    }
 }

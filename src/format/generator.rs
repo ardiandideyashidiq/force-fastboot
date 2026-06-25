@@ -300,3 +300,65 @@ pub fn parse_fs_options(options: &[String]) -> u32 {
     }
     flags
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_fs_options_empty() {
+        let opts: Vec<String> = vec![];
+        assert_eq!(parse_fs_options(&opts), 0);
+    }
+
+    #[test]
+    fn parse_fs_options_casefold() {
+        let opts = vec!["casefold".to_string()];
+        assert_eq!(parse_fs_options(&opts), 1 << 0);
+    }
+
+    #[test]
+    fn parse_fs_options_projid() {
+        let opts = vec!["projid".to_string()];
+        assert_eq!(parse_fs_options(&opts), 1 << 1);
+    }
+
+    #[test]
+    fn parse_fs_options_compress() {
+        let opts = vec!["compress".to_string()];
+        assert_eq!(parse_fs_options(&opts), 1 << 2);
+    }
+
+    #[test]
+    fn parse_fs_options_combined() {
+        let opts = vec!["casefold".to_string(), "compress".to_string()];
+        assert_eq!(parse_fs_options(&opts), (1 << 0) | (1 << 2));
+    }
+
+    #[test]
+    fn parse_fs_options_ignores_unknown() {
+        let opts = vec!["unknown_option".to_string()];
+        assert_eq!(parse_fs_options(&opts), 0);
+    }
+
+    #[test]
+    fn fs_type_from_partition_type_should_accept_ext4() {
+        assert_eq!(FsType::from_partition_type("ext4"), Some(FsType::Ext4));
+        assert_eq!(FsType::from_partition_type("EXT4"), Some(FsType::Ext4));
+    }
+
+    #[test]
+    fn fs_type_from_partition_type_should_accept_f2fs() {
+        assert_eq!(FsType::from_partition_type("f2fs"), Some(FsType::F2fs));
+    }
+
+    #[test]
+    fn fs_type_from_partition_type_should_return_none_for_raw() {
+        assert_eq!(FsType::from_partition_type("raw"), None);
+    }
+
+    #[test]
+    fn fs_type_from_partition_type_should_return_none_for_empty() {
+        assert_eq!(FsType::from_partition_type(""), None);
+    }
+}

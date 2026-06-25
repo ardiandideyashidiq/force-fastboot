@@ -1,4 +1,4 @@
-use colored::Colorize as _;
+use owo_colors::OwoColorize;
 
 pub fn error(msg: impl AsRef<str>) -> String {
     msg.as_ref().red().bold().to_string()

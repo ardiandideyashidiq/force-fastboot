@@ -3,6 +3,7 @@ use std::process;
 use clap::{CommandFactory, Parser};
 use pawflash::cli::args::{Cli, Commands};
 use pawflash::cli::init_logging;
+use pawflash::flash::executor::set_expected_serial;
 use tracing::error;
 
 #[tokio::main]
@@ -10,6 +11,9 @@ async fn main() {
     let cli = Cli::parse();
 
     init_logging(cli.verbose);
+    if let Some(ref serial) = cli.serial {
+        set_expected_serial(serial);
+    }
 
     if let Err(err) = run(cli).await {
         error!("{err:#}");
