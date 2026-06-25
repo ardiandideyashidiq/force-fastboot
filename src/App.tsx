@@ -87,7 +87,7 @@ function App() {
                 className={sidebarOpen ? "w-full justify-start gap-2" : "w-full justify-center px-0"}
                 size="sm"
               >
-                <RotateCcw size={16} className={rebooting ? "animate-spin" : ""} />
+                <RotateCcw size={18} className={rebooting ? "animate-spin" : ""} />
                 {sidebarOpen && "Reboot"}
               </SelectTrigger>
               <SelectContent>
@@ -103,10 +103,10 @@ function App() {
             {sidebarOpen ? (
               <div className="panel-inset px-2.5 py-2 text-xs space-y-1.5">
                 <div className="flex items-center gap-2">
-                  <span className={`size-2 rounded-full transition-colors duration-300 ${connected ? "dot-complete" : "dot-waiting animate-pulse"}`} />
+                  <span className={`size-2.5 rounded-full transition-colors duration-300 ${connected ? "dot-complete" : "dot-waiting animate-pulse"}`} />
                   <span className="font-medium">{connected ? "Connected" : "Disconnected"}</span>
                   <Button variant="ghost" size="icon-xs" className="ml-auto" onClick={fetchDevice} disabled={deviceLoading}>
-                    <RefreshCw size={12} className={deviceLoading ? "animate-spin" : ""} />
+                    <RefreshCw size={14} className={deviceLoading ? "animate-spin" : ""} />
                   </Button>
                 </div>
                 {connected && (
@@ -134,7 +134,7 @@ function App() {
                 onClick={fetchDevice}
                 disabled={deviceLoading}
               >
-                <span className={`size-2 rounded-full transition-colors duration-300 ${connected ? "dot-complete" : "dot-waiting animate-pulse"}`} />
+                <span className={`size-2.5 rounded-full transition-colors duration-300 ${connected ? "dot-complete" : "dot-waiting animate-pulse"}`} />
               </Button>
             )}
           </div>

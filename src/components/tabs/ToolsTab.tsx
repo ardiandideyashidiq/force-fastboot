@@ -160,16 +160,16 @@ export default function ToolsTab() {
       {/* Scatter File */}
       <section className="panel-shell overflow-hidden">
         <div className="flex items-start gap-4 px-5 py-5">
-          <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-accent-soft text-accent-soft-foreground">
-            <FileText size={16} />
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-md bg-accent-soft text-accent-soft-foreground">
+            <FileText size={18} />
           </span>
           <div className="min-w-0 flex-1">
             <h2 className="text-body font-semibold text-foreground">
               Scatter File
             </h2>
             <div className="mt-2 flex items-center gap-2">
-              <Button variant="outline" size="xs" onClick={pickScatter}>
-                <Upload size={12} className="mr-1" />
+              <Button variant="outline" size="sm" onClick={pickScatter}>
+                <Upload size={14} className="mr-1" />
                 Select
               </Button>
               {scatterPath && (
@@ -181,7 +181,7 @@ export default function ToolsTab() {
 
             {scatterLoading && (
               <p className="mt-2 text-label text-muted-foreground">
-                <LoaderCircle size={12} className="animate-spin inline mr-1" />
+                <LoaderCircle size={14} className="animate-spin inline mr-1" />
                 Parsing...
               </p>
             )}
@@ -212,13 +212,13 @@ export default function ToolsTab() {
                     </div>
                   </>
                 </div>
-                <Button
-                  variant="default"
-                  size="xs"
-                  onClick={handleExecutePlan}
-                  disabled={planLoading}
-                >
-                  {planLoading ? <><LoaderCircle size={12} className="animate-spin" /> Executing...</> : <><Play size={12} className="mr-1" /> Execute Flash Plan</>}
+                  <Button
+                    variant="default"
+                    size="sm"
+                    onClick={handleExecutePlan}
+                    disabled={planLoading}
+                  >
+                    {planLoading ? <><LoaderCircle size={14} className="animate-spin" /> Executing...</> : <><Play size={14} className="mr-1" /> Execute Flash Plan</>}
                 </Button>
               </div>
             )}
@@ -229,7 +229,7 @@ export default function ToolsTab() {
       {/* GSI Flash */}
       <section className="panel-shell flex items-center justify-between gap-3 px-5 py-3">
         <div className="flex items-center gap-3 min-w-0">
-          <Gauge size={14} className="shrink-0 text-muted-foreground" />
+          <Gauge size={16} className="shrink-0 text-muted-foreground" />
           <div className="min-w-0">
             <p className="text-body font-medium text-foreground/90">GSI Flash</p>
             {gsiPath && (
@@ -240,17 +240,17 @@ export default function ToolsTab() {
           </div>
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
-          <Button variant="ghost" size="xs" onClick={pickGsi}>
-            <Upload size={12} className="mr-1" />
+          <Button variant="ghost" size="sm" onClick={pickGsi}>
+            <Upload size={14} className="mr-1" />
             Select
           </Button>
           <Button
             variant="default"
-            size="xs"
+            size="sm"
             onClick={handleFlashGsi}
             disabled={!gsiPath || gsiLoading}
           >
-            {gsiLoading ? <><LoaderCircle size={12} className="animate-spin" /> Flashing...</> : "Flash"}
+            {gsiLoading ? <><LoaderCircle size={14} className="animate-spin" /> Flashing...</> : "Flash"}
           </Button>
         </div>
       </section>
@@ -259,7 +259,7 @@ export default function ToolsTab() {
       <div className="grid grid-cols-2 max-sm:grid-cols-1 gap-3">
         <section className="panel-shell flex items-center justify-between gap-3 px-5 py-3">
           <div className="flex items-center gap-3 min-w-0">
-            <HardDrive size={14} className="shrink-0 text-muted-foreground" />
+            <HardDrive size={16} className="shrink-0 text-muted-foreground" />
             <div>
               <p className="text-body font-medium text-foreground/90">Format Data</p>
               <p className="text-caption text-muted-foreground/70 leading-tight">
@@ -269,7 +269,7 @@ export default function ToolsTab() {
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
             <Select value={formatFsType} onValueChange={(v) => v && setFormatFsType(v)}>
-              <SelectTrigger size="sm" className="h-7 min-w-16">
+              <SelectTrigger size="sm" className="h-8 min-w-16">
                 <span className="text-label">{formatFsType.toUpperCase()}</span>
               </SelectTrigger>
               <SelectContent>
@@ -279,7 +279,7 @@ export default function ToolsTab() {
             </Select>
             <Button
               variant="default"
-              size="xs"
+              size="sm"
               onClick={() =>
                 setConfirmDialog({
                   title: "Format Data",
@@ -291,15 +291,15 @@ export default function ToolsTab() {
               }
               disabled={formatLoading}
             >
-              <Trash2 size={12} className="mr-1" />
-              {formatLoading ? <><LoaderCircle size={12} className="animate-spin" /> Working...</> : "Format"}
+        <Trash2 size={14} className="mr-1" />
+            {formatLoading ? <><LoaderCircle size={14} className="animate-spin" /> Working...</> : "Format"}
             </Button>
           </div>
         </section>
 
         <section className="panel-shell flex items-center justify-between gap-3 px-5 py-3">
           <div className="flex items-center gap-3 min-w-0">
-            <ShieldOff size={14} className="shrink-0 text-muted-foreground" />
+            <ShieldOff size={16} className="shrink-0 text-muted-foreground" />
             <div>
               <p className="text-body font-medium text-foreground/90">Disable AVB</p>
               <p className="text-caption text-muted-foreground/70 leading-tight">
@@ -309,7 +309,7 @@ export default function ToolsTab() {
           </div>
           <Button
             variant="destructive"
-            size="xs"
+            size="sm"
             onClick={() =>
               setConfirmDialog({
                 title: "Disable AVB",
@@ -321,7 +321,7 @@ export default function ToolsTab() {
             }
             disabled={vbmetaLoading}
           >
-            {vbmetaLoading ? <><LoaderCircle size={12} className="animate-spin" /> Working...</> : "Disable"}
+            {vbmetaLoading ? <><LoaderCircle size={14} className="animate-spin" /> Working...</> : "Disable"}
           </Button>
         </section>
       </div>

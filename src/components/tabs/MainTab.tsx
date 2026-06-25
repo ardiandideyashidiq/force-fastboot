@@ -106,8 +106,8 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
       {/* Force Fastboot — hero action */}
       <section className="panel-shell overflow-hidden">
         <div className="flex items-start gap-5 px-5 py-5">
-          <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-accent-brand/10 text-accent-brand">
-            <Zap size={18} />
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-md bg-accent-brand/10 text-accent-brand">
+            <Zap size={20} />
           </span>
           <div className="min-w-0 flex-1">
             <h2 className="text-body font-semibold text-foreground">
@@ -118,7 +118,7 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
             </p>
             <div className="mt-3 flex items-center gap-3">
               <Button
-                size="sm"
+                size="default"
                 onClick={() =>
                   setConfirmDialog({
                     title: "Force Fastboot",
@@ -131,7 +131,7 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
                 }
                 disabled={connecting}
               >
-                {connecting ? <><LoaderCircle size={12} className="animate-spin" /> Connecting...</> : "Force Fastboot"}
+                {connecting ? <><LoaderCircle size={14} className="animate-spin" /> Connecting...</> : "Force Fastboot"}
               </Button>
               <span className={`size-1.5 rounded-full transition-colors duration-300 ${connected ? "dot-complete" : "dot-waiting animate-pulse"}`} />
               <span className="text-caption text-muted-foreground">
@@ -157,15 +157,15 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
       </section>
 
       {/* Bootloader controls */}
-      <section className="panel-shell flex items-center justify-between gap-4 px-5 py-3 max-sm:flex-wrap">
+      <section className="panel-shell flex items-center justify-between gap-5 px-5 py-3 max-sm:flex-wrap">
         <div className="flex items-center gap-3 min-w-0">
-          <Lock size={14} className="shrink-0 text-muted-foreground" />
+          <Lock size={16} className="shrink-0 text-muted-foreground" />
           <span className="text-body font-medium text-foreground/90">Bootloader</span>
         </div>
         <div className="flex items-center gap-1.5">
           <Button
             variant="ghost"
-            size="xs"
+            size="sm"
             onClick={() =>
               setConfirmDialog({
                 title: "Lock Bootloader",
@@ -177,31 +177,31 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
             }
             disabled={lockLoading || !connected}
           >
-            {lockLoading ? <><LoaderCircle size={12} className="animate-spin" /> Locking...</> : <><Lock size={12} className="mr-1" /> Lock</>}
-          </Button>
-          <Button
-            variant="ghost"
-            size="xs"
-            onClick={() =>
-              setConfirmDialog({
-                title: "Unlock Bootloader",
-                description:
-                  "Unlocking the bootloader will disable verified boot and may wipe user data. Continue?",
-                confirmLabel: "Unlock",
-                onConfirm: handleUnlock,
-              })
-            }
-            disabled={unlockLoading || !connected}
-          >
-            {unlockLoading ? <><LoaderCircle size={12} className="animate-spin" /> Unlocking...</> : <><Unlock size={12} className="mr-1" /> Unlock</>}
+          {lockLoading ? <><LoaderCircle size={14} className="animate-spin" /> Locking...</> : <><Lock size={14} className="mr-1" /> Lock</>}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() =>
+                setConfirmDialog({
+                  title: "Unlock Bootloader",
+                  description:
+                    "Unlocking the bootloader will disable verified boot and may wipe user data. Continue?",
+                  confirmLabel: "Unlock",
+                  onConfirm: handleUnlock,
+                })
+              }
+              disabled={unlockLoading || !connected}
+            >
+              {unlockLoading ? <><LoaderCircle size={14} className="animate-spin" /> Unlocking...</> : <><Unlock size={14} className="mr-1" /> Unlock</>}
           </Button>
         </div>
       </section>
 
       {/* Active slot */}
-      <section className="panel-shell flex items-center justify-between gap-4 px-5 py-3">
+      <section className="panel-shell flex items-center justify-between gap-5 px-5 py-3">
         <div className="flex items-center gap-3 min-w-0">
-          <Cpu size={14} className="shrink-0 text-muted-foreground" />
+          <Cpu size={16} className="shrink-0 text-muted-foreground" />
           <span className="text-body font-medium text-foreground/90">Active Slot</span>
         </div>
         <div className="flex rounded-lg border border-border overflow-hidden">
@@ -209,7 +209,7 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
             <Button
               key={slot}
               variant="ghost"
-              size="xs"
+              size="sm"
               onClick={() => handleSetSlot(slot)}
               disabled={!connected}
               className={`rounded-none ${
@@ -249,7 +249,7 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
             onClick={handleGetVar}
             disabled={varLoading || !varName.trim() || !connected}
           >
-            <Search size={14} />
+                <Search size={16} />
           </Button>
         </div>
         {varResult && (
@@ -265,7 +265,7 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
               }}
               aria-label="Copy value"
             >
-              <Copy size={12} />
+              <Copy size={14} />
             </Button>
           </div>
         )}

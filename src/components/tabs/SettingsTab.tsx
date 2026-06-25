@@ -17,7 +17,7 @@ export default function SettingsTab() {
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-baseline justify-between gap-4">
-      <span className="text-caption font-semibold uppercase tracking-label text-muted-foreground/70">
+      <span className="text-label font-semibold uppercase tracking-label text-muted-foreground/70">
         {label}
       </span>
       <span className="text-body text-foreground/90 text-right">{value}</span>

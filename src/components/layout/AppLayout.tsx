@@ -10,8 +10,8 @@ import {
   Moon,
 } from "lucide-react";
 
-const SIDEBAR_OPEN = 208;  // 13rem
-const SIDEBAR_COLLAPSED = 56; // 3.5rem
+const SIDEBAR_OPEN = 224;  // 14rem
+const SIDEBAR_COLLAPSED = 60; // 3.75rem
 
 interface AppLayoutProps {
   children: (props: { tab: string }) => ReactNode;
@@ -85,7 +85,7 @@ export default function AppLayout({
         style={{ width: sidebarOpen ? SIDEBAR_OPEN : SIDEBAR_COLLAPSED }}
       >
         {/* Brand + collapse */}
-        <div className="flex items-center justify-between shrink-0 px-3 pt-4 pb-3 border-b border-accent-brand/15">
+        <div className="flex items-center justify-between shrink-0 px-4 pt-4 pb-3 border-b border-accent-brand/15">
           {sidebarOpen ? (
             <span className="text-caption font-semibold tracking-overline text-muted-foreground/70 uppercase">
               pawflash
@@ -97,12 +97,12 @@ export default function AppLayout({
             onClick={toggleSidebar}
             aria-label={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
           >
-            {sidebarOpen ? <PanelLeftClose size={16} /> : <PanelLeftOpen size={16} />}
+            {sidebarOpen ? <PanelLeftClose size={18} /> : <PanelLeftOpen size={18} />}
           </Button>
         </div>
 
         {/* Nav */}
-        <nav className="flex flex-col gap-0.5 px-2 shrink-0">
+        <nav className="flex flex-col gap-1 px-3 shrink-0">
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = tab === item.id;
@@ -119,7 +119,7 @@ export default function AppLayout({
                 }
                 onClick={() => setTab(item.id)}
               >
-                <Icon size={16} />
+                <Icon size={18} />
                 {sidebarOpen && <span>{item.label}</span>}
               </Button>
             );
@@ -131,7 +131,7 @@ export default function AppLayout({
 
         {/* Actions slot */}
         {sidebarActions && (
-          <div className="mb-3 px-3">
+          <div className="mb-3 px-4">
             {typeof sidebarActions === "function"
               ? sidebarActions({ sidebarOpen })
               : sidebarActions}
@@ -139,7 +139,7 @@ export default function AppLayout({
         )}
 
         {/* Theme toggle */}
-        <div className="shrink-0 border-t border-sidebar-border px-3 py-3">
+        <div className="shrink-0 border-t border-sidebar-border px-4 py-4">
           {sidebarOpen ? (
             <div className="grid grid-cols-2 gap-1.5">
               <Button
@@ -148,7 +148,7 @@ export default function AppLayout({
                 onClick={() => onThemeChange("light")}
                 className="w-full"
               >
-                <Sun size={14} />
+                <Sun size={16} />
                 <span>Light</span>
               </Button>
               <Button
@@ -157,7 +157,7 @@ export default function AppLayout({
                 onClick={() => onThemeChange("dark")}
                 className="w-full"
               >
-                <Moon size={14} />
+                <Moon size={16} />
                 <span>Dark</span>
               </Button>
             </div>
@@ -169,7 +169,7 @@ export default function AppLayout({
               aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
               className="w-full"
             >
-              {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
+              {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
             </Button>
           )}
         </div>
