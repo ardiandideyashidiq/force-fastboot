@@ -3,22 +3,7 @@ use serde_json::{json, Map, Value};
 use super::{ParsedRawScatter, scalar_json, value_to_string, find_general_value};
 
 pub(crate) fn parse_yaml_scatter(text: &str) -> ParsedRawScatter {
-    let records = if let Ok(value) = serde_yaml::from_str::<serde_yaml::Value>(text) {
-        if let Ok(json_value) = serde_json::to_value(value) {
-            match json_value {
-                Value::Array(items) => items
-                    .into_iter()
-                    .filter_map(|item| item.as_object().cloned())
-                    .collect(),
-                Value::Object(map) => vec![map],
-                _ => Vec::new(),
-            }
-        } else {
-            loose_yaml_records(text)
-        }
-    } else {
-        loose_yaml_records(text)
-    };
+    let records = loose_yaml_records(text);
 
     let mut general = Map::new();
     let mut layouts: BTreeMap<String, Vec<Map<String, Value>>> = BTreeMap::new();
@@ -83,7 +68,6 @@ pub(crate) fn parse_yaml_scatter(text: &str) -> ParsedRawScatter {
     let platform = find_general_value(&general_value, "platform");
     let project = find_general_value(&general_value, "project");
 
-    // Intent: plumb warnings through ParsedRawScatter when callers need them.
     drop(warnings);
 
     ParsedRawScatter {

@@ -33,7 +33,8 @@ struct ScatterConfig<'a> {
     groups: &'a [String],
     exclude: &'a [String],
     firmware_dir: Option<&'a Path>,
-    image_handling: sp::ImageHandling,
+    check_images: bool,
+    image_search: bool,
     include_preloader: bool,
     allow_incomplete_slots: bool,
     json: bool,
@@ -124,7 +125,8 @@ pub async fn run(
                 groups: group,
                 exclude,
                 firmware_dir: firmware_dir.as_deref(),
-                image_handling: sp::ImageHandling { check_images, image_search },
+                check_images,
+                image_search,
                 include_preloader,
                 allow_incomplete_slots,
                 json,
@@ -188,8 +190,10 @@ async fn run_scatter(cfg: &ScatterConfig<'_>) -> Result<()> {
         package_root: Some(cfg.scatter_path.parent()
             .unwrap_or_else(|| std::path::Path::new("."))
             .to_path_buf()),
-        image_handling: cfg.image_handling.clone(),
-        slot_policy: sp::SlotPolicy { include_preloader: cfg.include_preloader, allow_incomplete_slots: cfg.allow_incomplete_slots },
+        check_images: cfg.check_images,
+        image_search: cfg.image_search,
+        include_preloader: cfg.include_preloader,
+        allow_incomplete_slots: cfg.allow_incomplete_slots,
         clean: is_clean,
     };
 
@@ -232,7 +236,7 @@ async fn run_scatter(cfg: &ScatterConfig<'_>) -> Result<()> {
     if is_clean {
         output::status::heading("Formatting data partitions");
         let fmt_result = executor.format_data(0, is_clean_test, None).await;
-        let fmt_failed = output::format_display::print_format_results(&fmt_result);
+        let fmt_failed = crate::flash::results::print_format_results(&fmt_result);
         if fmt_failed > 0 {
             bail!("format-data failed with {fmt_failed} failure(s)");
         }
@@ -292,12 +296,12 @@ fn show_scatter_metadata(path: &Path, full_json: bool) -> Result<()> {
         output::status::data(output::tables::scatter_metadata(&scatter));
         if let Some(w) = output::tables::scatter_warnings(&scatter) {
             output::status::blank();
-            output::status::data(output::theme::warn("Warnings:"));
+            output::status::data(output::status::warn_colored("Warnings:"));
             output::status::data(w);
         }
         if let Some(e) = output::tables::scatter_errors(&scatter) {
             output::status::blank();
-            output::status::data(output::theme::error("Errors:"));
+            output::status::data(output::status::error_colored("Errors:"));
             output::status::data(e);
         }
     }
@@ -321,17 +325,17 @@ fn print_plan(plan: &sp::FlashPlan, json: bool) -> Result<()> {
         }
         if let Some(s) = output::tables::plan_skipped(plan) {
             output::status::blank();
-            output::status::data(output::theme::dim("Skipped partitions:"));
+            output::status::data(output::status::dim_colored("Skipped partitions:"));
             output::status::data(s);
         }
         if let Some(w) = output::tables::plan_warnings(plan) {
             output::status::blank();
-            output::status::data(output::theme::warn("Warnings:"));
+            output::status::data(output::status::warn_colored("Warnings:"));
             output::status::data(w);
         }
         if let Some(e) = output::tables::plan_errors(plan) {
             output::status::blank();
-            output::status::data(output::theme::error("Errors:"));
+            output::status::data(output::status::error_colored("Errors:"));
             output::status::data(e);
         }
     }

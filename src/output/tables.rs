@@ -4,6 +4,7 @@ use tabled::settings::style::Style;
 use tabled::{Table, Tabled};
 
 use crate::flash::results::FlashResult;
+use crate::output::status::{dim_colored, error_colored, info_colored, ok_colored, warn_colored};
 use crate::scatter_parser::types::{FlashPlan, ScatterFile};
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -18,7 +19,7 @@ fn apply_colors(s: &str) -> String {
     for ch in s.chars() {
         match ch {
             '╭' | '╮' | '╰' | '╯' | '│' | '├' | '┤' | '┬' | '┴' | '─' | '┼' | '╵' => {
-                out.push_str(&super::theme::dim(ch.to_string()));
+                out.push_str(&dim_colored(ch.to_string()));
             }
             _ => out.push(ch),
         }
@@ -73,13 +74,13 @@ pub fn scatter_metadata(scatter: &ScatterFile) -> String {
 
     if !scatter.warnings.is_empty() {
         rows.push(MetaRow {
-            property: super::theme::warn("Warnings"),
+            property: warn_colored("Warnings"),
             value: scatter.warnings.len().to_string(),
         });
     }
     if !scatter.errors.is_empty() {
         rows.push(MetaRow {
-            property: super::theme::error("Errors"),
+            property: error_colored("Errors"),
             value: scatter.errors.len().to_string(),
         });
     }
@@ -97,7 +98,7 @@ pub fn scatter_warnings(scatter: &ScatterFile) -> Option<String> {
     let lines: Vec<String> = scatter
         .warnings
         .iter()
-        .map(|w| format!("  {} {w}", super::theme::warn("•")))
+        .map(|w| format!("  {} {w}", warn_colored("•")))
         .collect();
     Some(lines.join("\n"))
 }
@@ -110,7 +111,7 @@ pub fn scatter_errors(scatter: &ScatterFile) -> Option<String> {
     let lines: Vec<String> = scatter
         .errors
         .iter()
-        .map(|e| format!("  {} {e}", super::theme::error("•")))
+        .map(|e| format!("  {} {e}", error_colored("•")))
         .collect();
     Some(lines.join("\n"))
 }
@@ -159,7 +160,7 @@ pub fn plan_errors(plan: &FlashPlan) -> Option<String> {
     let lines: Vec<String> = plan
         .errors
         .iter()
-        .map(|e| format!("  {} {e}", super::theme::error("•")))
+        .map(|e| format!("  {} {e}", error_colored("•")))
         .collect();
     Some(lines.join("\n"))
 }
@@ -172,7 +173,7 @@ pub fn plan_warnings(plan: &FlashPlan) -> Option<String> {
     let lines: Vec<String> = plan
         .warnings
         .iter()
-        .map(|w| format!("  {} {w}", super::theme::warn("•")))
+        .map(|w| format!("  {} {w}", warn_colored("•")))
         .collect();
     Some(lines.join("\n"))
 }
@@ -190,8 +191,8 @@ pub fn plan_summary(plan: &FlashPlan) -> String {
     let parts: Vec<String> = [
         check(plan.actions.len(), "Flash actions"),
         check(plan.skipped.len(), "Skipped"),
-        check(plan.errors.len(), &super::theme::error("Errors")),
-        check(plan.warnings.len(), &super::theme::warn("Warnings")),
+        check(plan.errors.len(), &error_colored("Errors")),
+        check(plan.warnings.len(), &warn_colored("Warnings")),
     ]
     .into_iter()
     .flatten()
@@ -210,7 +211,7 @@ pub fn plan_skipped(plan: &FlashPlan) -> Option<String> {
     let lines: Vec<String> = plan
         .skipped
         .iter()
-        .map(|s| format!("  {} {} — {}", super::theme::dim("•"), s.partition, s.reason))
+        .map(|s| format!("  {} {} — {}", dim_colored("•"), s.partition, s.reason))
         .collect();
     Some(lines.join("\n"))
 }
@@ -252,11 +253,11 @@ pub fn flash_result(result: &FlashResult) -> String {
 
     let header = format!(
         "{}  {}  {}  {}  {}",
-        super::theme::ok(&succeeded),
-        super::theme::dim(sep),
-        super::theme::error(&failed),
-        super::theme::dim(sep),
-        super::theme::info(&total),
+        ok_colored(&succeeded),
+        dim_colored(sep),
+        error_colored(&failed),
+        dim_colored(sep),
+        info_colored(&total),
     );
 
     let mut lines = vec![header];
@@ -266,8 +267,8 @@ pub fn flash_result(result: &FlashResult) -> String {
             let timing = fmt_duration(&outcome.duration);
             lines.push(format!(
                 "  {} {}  {}",
-                super::theme::ok("OKAY"),
-                super::theme::dim(&timing),
+                ok_colored("OKAY"),
+                dim_colored(&timing),
                 outcome.partition,
             ));
         } else if let Some(ref err) = outcome.error {
@@ -275,8 +276,8 @@ pub fn flash_result(result: &FlashResult) -> String {
             let msg = format!("(remote: '{err}')");
             lines.push(format!(
                 "  {} {}  {}",
-                super::theme::error("FAILED"),
-                super::theme::dim(&msg),
+                error_colored("FAILED"),
+                dim_colored(&msg),
                 outcome.partition,
             ));
         }
@@ -290,8 +291,8 @@ pub fn format_result(partition: &str, succeeded: usize) -> String {
     let wiped = format!("(wiped: {succeeded})");
     format!(
         "{} {partition}  {}",
-        super::theme::ok("✓"),
-        super::theme::dim(&wiped),
+        ok_colored("✓"),
+        dim_colored(&wiped),
     )
 }
 

@@ -30,14 +30,6 @@ pub enum Mode {
     DirtyFlash,
 }
 
-/// Execution semantics for a planned flash action.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum FlashActionExecutionKind {
-    /// Flash an image file to a partition.
-    Flash,
-}
-
 /// Image path resolution result.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct ResolvedPath {
@@ -196,36 +188,6 @@ impl ScatterFile {
     }
 }
 
-/// Image checking policy.
-#[derive(Debug, Clone)]
-pub struct ImageHandling {
-    /// Whether to verify image file existence and size.
-    pub check_images: bool,
-    /// Whether to search for images by basename.
-    pub image_search: bool,
-}
-
-impl Default for ImageHandling {
-    fn default() -> Self {
-        Self { check_images: false, image_search: false }
-    }
-}
-
-/// Slot assignment policy.
-#[derive(Debug, Clone)]
-pub struct SlotPolicy {
-    /// Whether to include preloader in dirty-flash mode.
-    pub include_preloader: bool,
-    /// Whether to allow incomplete slot pairs.
-    pub allow_incomplete_slots: bool,
-}
-
-impl Default for SlotPolicy {
-    fn default() -> Self {
-        Self { include_preloader: false, allow_incomplete_slots: false }
-    }
-}
-
 /// Flash plan options.
 #[derive(Debug, Clone)]
 pub struct FlashPlanOptions {
@@ -243,10 +205,14 @@ pub struct FlashPlanOptions {
     pub firmware_dir: Option<std::path::PathBuf>,
     /// Package root directory for resolving image paths.
     pub package_root: Option<std::path::PathBuf>,
-    /// Image checking policy.
-    pub image_handling: ImageHandling,
-    /// Slot assignment policy.
-    pub slot_policy: SlotPolicy,
+    /// Whether to verify image file existence and size.
+    pub check_images: bool,
+    /// Whether to search for images by basename.
+    pub image_search: bool,
+    /// Whether to include preloader in dirty-flash mode.
+    pub include_preloader: bool,
+    /// Whether to allow incomplete slot pairs.
+    pub allow_incomplete_slots: bool,
     /// Include userdata in the flash plan.
     pub clean: bool,
 }
@@ -261,8 +227,10 @@ impl Default for FlashPlanOptions {
             exclude: Vec::new(),
             firmware_dir: None,
             package_root: None,
-            image_handling: ImageHandling::default(),
-            slot_policy: SlotPolicy::default(),
+            check_images: false,
+            image_search: false,
+            include_preloader: false,
+            allow_incomplete_slots: false,
             clean: false,
         }
     }
@@ -294,8 +262,6 @@ pub struct FlashPlanSummary {
 pub struct FlashAction {
     /// Action type.
     pub action: String,
-    /// Execution semantics for the action.
-    pub execution_kind: FlashActionExecutionKind,
     /// Full partition name.
     pub partition: String,
     /// Base partition name without slot suffix.

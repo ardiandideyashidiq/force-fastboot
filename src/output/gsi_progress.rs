@@ -1,20 +1,11 @@
-use std::time::Duration;
-
-use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use indicatif::ProgressBar;
 
 use crate::gsi::types::GsiEvent;
-use crate::output;
-
-fn step_style() -> ProgressStyle {
-    ProgressStyle::with_template("{spinner:.green} {msg}")
-        .unwrap()
-        .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
-}
+use crate::output::{self, spinner};
 
 /// Tracks GSI workflow progress via a `MultiProgress` when not verbose.
 /// When verbose, delegates to `tracing::info!` instead.
 pub struct GsiProgress {
-    mp: MultiProgress,
     current: Option<ProgressBar>,
 }
 
@@ -26,11 +17,8 @@ impl Default for GsiProgress {
 
 impl GsiProgress {
     #[must_use]
-    pub fn new() -> Self {
-        Self {
-            mp: MultiProgress::new(),
-            current: None,
-        }
+    pub const fn new() -> Self {
+        Self { current: None }
     }
 
     /// Report a GSI event. When `-v` is active, logs via `tracing::info!`.
@@ -59,24 +47,19 @@ impl GsiProgress {
 
         match event {
             GsiEvent::Step(step) => {
-                // Clear the previous step's spinner
                 if let Some(pb) = self.current.take() {
                     pb.finish_and_clear();
                 }
-                let pb = self.mp.add(ProgressBar::new_spinner());
-                pb.set_style(step_style());
-                pb.set_message(step.as_str().to_string());
-                pb.enable_steady_tick(Duration::from_millis(80));
-                self.current = Some(pb);
+                self.current = Some(spinner::start(step.as_str()));
             }
             GsiEvent::ModeDetected(mode) => {
-                let _ = self.mp.println(format!("  {} detected", mode.as_str()));
+                let _ = spinner::print(&format!("  {} detected", mode.as_str()));
             }
             GsiEvent::ModeReady(mode) => {
-                let _ = self.mp.println(format!("  ✓ ready in {}", mode.as_str()));
+                let _ = spinner::print(&format!("  ✓ ready in {}", mode.as_str()));
             }
             GsiEvent::ResolvedPartition { base, partition, size_bytes } => {
-                let _ = self.mp.println(format!(
+                let _ = spinner::print(&format!(
                     "  ✓ resolved {base} → {partition} ({size_bytes} bytes)",
                 ));
             }
@@ -91,7 +74,7 @@ impl GsiProgress {
                 }
             }
             GsiEvent::PartitionSkipped { partition, reason } => {
-                let _ = self.mp.println(format!("  - skipped {partition}: {reason}"));
+                let _ = spinner::print(&format!("  - skipped {partition}: {reason}"));
             }
         }
     }

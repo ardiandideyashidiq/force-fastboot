@@ -18,19 +18,19 @@ fn show_plan(_parsed: &sp::ScatterFile, plan: &sp::FlashPlan) -> Result<bool> {
     }
     if let Some(s) = output::tables::plan_skipped(plan) {
         output::status::blank();
-        output::status::data(output::theme::dim("Skipped partitions:"));
+        output::status::data(output::status::dim_colored("Skipped partitions:"));
         output::status::data(s);
     }
     if let Some(w) = output::tables::plan_warnings(plan) {
         output::status::blank();
-        output::status::data(output::theme::warn("Warnings:"));
+        output::status::data(output::status::warn_colored("Warnings:"));
         output::status::data(w);
     }
 
     let has_errors = !plan.errors.is_empty();
     if has_errors {
         output::status::blank();
-        output::status::data(output::theme::error("Errors:"));
+        output::status::data(output::status::error_colored("Errors:"));
         output::status::stderr(output::tables::plan_errors(plan).unwrap_or_default());
     }
 
@@ -86,7 +86,8 @@ pub async fn run(scatter_path: &Path, exclude: &[String], clean: bool, no_format
     let options = sp::FlashPlanOptions {
         mode: sp::Mode::DirtyFlash,
         storage: sp::StorageSelect::Auto,
-        image_handling: sp::ImageHandling { check_images: true, image_search: true },
+        check_images: true,
+        image_search: true,
         exclude: exclude.to_vec(),
         clean: clean || clean_test,
         package_root: Some(scatter_path.parent()
@@ -122,7 +123,7 @@ pub async fn run(scatter_path: &Path, exclude: &[String], clean: bool, no_format
     if do_format {
         output::status::heading("Formatting data partitions");
         let fmt_result = executor.format_data(0, clean_test, None).await;
-        let fmt_failed = output::format_display::print_format_results(&fmt_result);
+        let fmt_failed = crate::flash::results::print_format_results(&fmt_result);
         if fmt_failed > 0 {
             anyhow::bail!("format-data failed with {fmt_failed} failure(s)");
         }

@@ -8,7 +8,7 @@ fn multi() -> &'static MultiProgress {
     MP.get_or_init(MultiProgress::new)
 }
 
-fn spinner_style() -> ProgressStyle {
+pub(crate) fn spinner_style() -> ProgressStyle {
     ProgressStyle::with_template("{spinner:.green} {msg}")
         .unwrap()
         .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")

@@ -41,7 +41,7 @@ pub async fn run(
 
     let result = executor.format_data(fs_options, clean_test, fs_type_override).await;
 
-    let failed = output::format_display::print_format_results(&result);
+    let failed = crate::flash::results::print_format_results(&result);
     if failed > 0 {
         bail!("format-data completed with {failed} failure(s)");
     }

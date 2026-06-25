@@ -148,17 +148,17 @@ pub(crate) async fn flash_sparse_image(
                 std::io::ErrorKind::InvalidData,
                 "sparse split size exceeds u32 range",
             )))?;
-        let mut dl = crate::flash::session::FlashDownload::begin(fb, sparse_size).await?;
+        let mut sender = fb.download( sparse_size).await?;
 
         // file header for this split
-        dl.extend(&split.header.to_bytes()).await?;
+        sender.extend_from_slice(&split.header.to_bytes()).await?;
         if let Some(pb) = progress_bar {
             pb.inc(FILE_HEADER_BYTES_LEN as u64);
         }
 
         // chunk headers + data for each chunk in this split
         for chunk in &split.chunks {
-            dl.extend(&chunk.header.to_bytes()).await?;
+            sender.extend_from_slice(&chunk.header.to_bytes()).await?;
             if let Some(pb) = progress_bar {
                 pb.inc(CHUNK_HEADER_BYTES_LEN as u64);
             }
@@ -171,7 +171,7 @@ pub(crate) async fn flash_sparse_image(
                 while remaining > 0 {
                     let to_read = buf.len().min(remaining);
                     read_exact_padded_or_truncate(&mut file, &mut buf[..to_read], chunk.size).await?;
-                    dl.extend(&buf[..to_read]).await?;
+                    sender.extend_from_slice(&buf[..to_read]).await?;
                     if let Some(pb) = progress_bar {
                         pb.inc(to_read as u64);
                     }
@@ -180,7 +180,7 @@ pub(crate) async fn flash_sparse_image(
             }
         }
 
-        dl.finish().await?;
+        sender.finish().await?;
         last_resp = fb.flash(partition).await?;
     }
 
@@ -230,15 +230,15 @@ pub(crate) async fn flash_sparse_wrapped(
                 "sparse split size exceeds u32 range",
             )))?;
         info!(%partition, part = i, sparse_size, max_download, "downloading split via fb.download");
-        let mut dl = crate::flash::session::FlashDownload::begin(fb, sparse_size).await?;
+        let mut sender = fb.download( sparse_size).await?;
         info!(%partition, part = i, "fb.download returned successfully");
 
         // file header for this split
-        dl.extend(&split.header.to_bytes()).await?;
+        sender.extend_from_slice(&split.header.to_bytes()).await?;
 
         // chunk headers + data for each chunk in this split
         for chunk in &split.chunks {
-            dl.extend(&chunk.header.to_bytes()).await?;
+            sender.extend_from_slice(&chunk.header.to_bytes()).await?;
 
             if chunk.size > 0 {
                 file.seek(SeekFrom::Start(chunk.offset as u64)).await?;
@@ -252,13 +252,13 @@ pub(crate) async fn flash_sparse_wrapped(
                     // past the end of the file for block alignment.  Zero-filling
                     // the tail is correct.
                     read_exact_padded(&mut file, &mut buf[..to_read]).await?;
-                    dl.extend(&buf[..to_read]).await?;
+                    sender.extend_from_slice(&buf[..to_read]).await?;
                     remaining = remaining.saturating_sub(to_read);
                 }
             }
         }
 
-        dl.finish().await?;
+        sender.finish().await?;
         last_resp = fb.flash(partition).await?;
     }
 
@@ -368,11 +368,11 @@ pub(crate) async fn sparse_wrap_file(
     // ---- send ----
     let mut file = tokio::fs::File::open(path).await?;
 
-    let mut dl = crate::flash::session::FlashDownload::begin(fb, sparse_size).await?;
-    dl.extend(&header.to_bytes()).await?;
+    let mut sender = fb.download( sparse_size).await?;
+    sender.extend_from_slice(&header.to_bytes()).await?;
 
     for chunk in &chunks {
-        dl.extend(&chunk.header.to_bytes()).await?;
+        sender.extend_from_slice(&chunk.header.to_bytes()).await?;
         if chunk.size > 0 {
             file.seek(SeekFrom::Start(chunk.offset as u64)).await?;
             let mut remaining = chunk.size;
@@ -380,13 +380,13 @@ pub(crate) async fn sparse_wrap_file(
             while remaining > 0 {
                 let to_read = buf.len().min(remaining);
                 read_exact_padded(&mut file, &mut buf[..to_read]).await?;
-                dl.extend(&buf[..to_read]).await?;
+                sender.extend_from_slice(&buf[..to_read]).await?;
                 remaining = remaining.saturating_sub(to_read);
             }
         }
     }
 
-    dl.finish().await?;
+    sender.finish().await?;
     let resp = fb.flash(partition).await?;
 
     debug!(%partition, sparse_size, response = resp, "full-scan sparse flash complete");

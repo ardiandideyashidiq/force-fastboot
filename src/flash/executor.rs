@@ -25,6 +25,11 @@ use crate::flash::error::Result;
 use crate::flash::results::{FlashOutcome, FlashResult};
 use crate::scatter_parser::types::FlashPlan;
 
+const EMPTY_VBMETA: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/vendor/empty_vbmeta.img"
+));
+
 /// Reboot target modes understood by fastboot.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BootTarget {
@@ -443,7 +448,7 @@ impl FlashExecutor {
     ///
     /// Panics if `EMPTY_VBMETA` exceeds 4 GiB (impossible for a 512-byte image).
     pub async fn flash_empty_vbmeta(&mut self) -> Result<String> {
-        let data = crate::flash::vbmeta::EMPTY_VBMETA;
+        let data = EMPTY_VBMETA;
         debug!("flashing empty vbmeta to both slots");
         let mut last_resp = String::new();
         for slot in &["a", "b"] {
@@ -581,7 +586,7 @@ impl FlashExecutor {
     ) -> Result<String> {
         debug!(%partition, file_size = size, "flashing raw partition");
         let mut file = tokio::fs::File::open(path).await?;
-        let mut dl = crate::flash::session::FlashDownload::begin(&mut self.fb, size).await?;
+        let mut sender = self.fb.download(size).await?;
 
         let mut buf = vec![0u8; 1024 * 1024];
         let mut written = 0u64;
@@ -590,14 +595,14 @@ impl FlashExecutor {
             if n == 0 {
                 break;
             }
-            dl.extend(&buf[..n]).await?;
+            sender.extend_from_slice(&buf[..n]).await?;
             written += n as u64;
             if let Some(pb) = progress_bar {
                 pb.set_position(written);
             }
         }
 
-        dl.finish().await?;
+        sender.finish().await?;
         let resp = self.fb.flash(partition).await?;
         if let Some(pb) = progress_bar {
             pb.set_position(u64::from(size));

@@ -1,8 +1,46 @@
-use crate::output::{self, spinner, theme};
+use owo_colors::OwoColorize;
 
-/// Strip ANSI escape codes from a string for clean log output.
+use crate::output::{self, spinner};
+
 fn strip(s: &str) -> String {
-    console::strip_ansi_codes(s).to_string()
+    let mut out = String::with_capacity(s.len());
+    let mut in_escape = false;
+    for b in s.bytes() {
+        if in_escape {
+            if b == b'm' || b.is_ascii_alphabetic() {
+                in_escape = false;
+            }
+        } else if b == b'\x1b' {
+            in_escape = true;
+        } else {
+            out.push(b as char);
+        }
+    }
+    out
+}
+
+pub fn warn_colored(msg: impl AsRef<str>) -> String {
+    msg.as_ref().yellow().to_string()
+}
+
+pub fn error_colored(msg: impl AsRef<str>) -> String {
+    msg.as_ref().red().bold().to_string()
+}
+
+pub fn dim_colored(msg: impl AsRef<str>) -> String {
+    msg.as_ref().dimmed().to_string()
+}
+
+pub fn ok_colored(msg: impl AsRef<str>) -> String {
+    msg.as_ref().green().to_string()
+}
+
+pub fn info_colored(msg: impl AsRef<str>) -> String {
+    msg.as_ref().bright_blue().to_string()
+}
+
+pub fn heading_colored(msg: impl AsRef<str>) -> String {
+    msg.as_ref().white().bold().to_string()
 }
 
 /// Print command data output (tables, JSON, device info) — always to stdout.
@@ -17,22 +55,22 @@ pub fn data(output: impl AsRef<str>) {
 
 /// Print a success status line (e.g., `OKAY (resp)`).
 pub fn ok(label: impl AsRef<str>, detail: impl AsRef<str>) {
-    emit_status("info", theme::ok(label), detail.as_ref());
+    emit_status("info", ok_colored(label), detail.as_ref());
 }
 
 /// Print a warning status line.
 pub fn warn(label: impl AsRef<str>, detail: impl AsRef<str>) {
-    emit_status("warn", theme::warn(label), detail.as_ref());
+    emit_status("warn", warn_colored(label), detail.as_ref());
 }
 
 /// Print a failure status line.
 pub fn fail(label: impl AsRef<str>, detail: impl AsRef<str>) {
-    emit_status("error", theme::error(label), detail.as_ref());
+    emit_status("error", error_colored(label), detail.as_ref());
 }
 
 /// Print a dim/neutral status message (e.g., "Skipped partitions:").
 pub fn dim(msg: impl AsRef<str>) {
-    let colored = theme::dim(msg.as_ref());
+    let colored = dim_colored(msg.as_ref());
     if output::verbosity() >= 1 {
         tracing::info!("{}", strip(&colored));
     }
@@ -45,7 +83,7 @@ pub fn heading(msg: impl AsRef<str>) {
     if output::verbosity() >= 1 {
         tracing::info!("{s}");
     }
-    println!("{}", theme::heading(s));
+    println!("{}", heading_colored(s));
 }
 
 /// Print a blank line as section separator.
