@@ -15,14 +15,19 @@ Prebuilt binaries for Linux (x86_64) and Windows (x86_64) on [releases](https://
 
 ```
 pawflash force-fastboot [-v]
-pawflash flash scatter <scatter> [--mode dry-run|selective|dirty-flash] [--storage auto|all|ufs|emmc] [--firmware-dir <dir>] [--check-images] [--dry-run] [--part <name>]... [--group <name>]... [-v]
+pawflash flash scatter <scatter-path> [--mode dry-run|selective|dirty-flash] [--storage auto|all|ufs|emmc] [--part <name>]... [--group <name>]... [--firmware-dir <dir>] [--check-images] [--dry-run] [--json] [--exclude <name>]... [--image-search] [--allow-incomplete-slots] [--include-preloader] [--clean] [--no-format] [--clean-test] [-v]
+pawflash flash gsi <image> [--clean-test]
 pawflash flash <partition> <image> [--slot a|b] [--both]
 pawflash disable-vbmeta [-v]
-pawflash format-data [-v] [--fs-options casefold,projid,compress]
-pawflash device info|reboot [target]|lock|unlock|set-active <a|b>|get-var <var>
+pawflash format-data [-v] [--fs-options casefold,projid,compress] [--fs-type ext4|f2fs]
+pawflash device info
+pawflash device reboot [system|bootloader|fastbootd|recovery]
+pawflash device lock|unlock
+pawflash device set-active <a|b>
+pawflash device get-var <var-name>
 ```
 
-Flash modes: `dry-run` (preview), `selective` (default, explicit parts/groups), `dirty-flash` (safe firmware + Android). Storage: `auto` (default), `all`, `ufs`, `emmc`.
+Flash modes: `dry-run` (preview via `--dry-run` flag), `selective` (explicit `--part`/`--group`, the default), `dirty-flash` (safe firmware + Android). Storage: `auto` (default, prefers UFS), `all`, `ufs`, `emmc`.
 
 ## License
 
