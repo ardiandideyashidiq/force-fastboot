@@ -72,65 +72,87 @@ pub fn canonical_name(name: &str) -> String {
     base
 }
 
+enum SafetyRole {
+    IdentityOrCalibration,
+    Dangerous,
+    BootloaderCritical,
+    BootChainOrAvb,
+    ModemFirmware,
+    McuFirmware,
+    AndroidDynamicOrSystem,
+    RegionalOrBranding,
+    Unknown,
+}
+
+fn classify(canonical: &str) -> SafetyRole {
+    if IDENTITY_CANONICAL.contains(&canonical) {
+        SafetyRole::IdentityOrCalibration
+    } else if DANGEROUS_CANONICAL.contains(&canonical) {
+        SafetyRole::Dangerous
+    } else if BOOTLOADER_CANONICAL.contains(&canonical) {
+        SafetyRole::BootloaderCritical
+    } else if BOOT_CHAIN_CANONICAL.contains(&canonical) {
+        SafetyRole::BootChainOrAvb
+    } else if MODEM_CANONICAL.contains(&canonical) {
+        SafetyRole::ModemFirmware
+    } else if MCU_FW_CANONICAL.contains(&canonical) {
+        SafetyRole::McuFirmware
+    } else if ANDROID_CANONICAL.contains(&canonical) {
+        SafetyRole::AndroidDynamicOrSystem
+    } else if REGIONAL_CANONICAL.contains(&canonical) {
+        SafetyRole::RegionalOrBranding
+    } else {
+        SafetyRole::Unknown
+    }
+}
+
 /// Return a safety class for a partition name.
 #[must_use]
 pub fn safety_class(name: &str) -> String {
     let canonical = canonical_name(name);
-    if IDENTITY_CANONICAL.contains(&canonical.as_str()) {
-        "identity_or_calibration"
-    } else if DANGEROUS_CANONICAL.contains(&canonical.as_str()) {
-        "dangerous"
-    } else if BOOTLOADER_CANONICAL.contains(&canonical.as_str()) {
-        "bootloader_critical"
-    } else if BOOT_CHAIN_CANONICAL.contains(&canonical.as_str()) {
-        "boot_critical"
-    } else if MODEM_CANONICAL.contains(&canonical.as_str())
-        || MCU_FW_CANONICAL.contains(&canonical.as_str())
-    {
-        "firmware"
-    } else if ANDROID_CANONICAL.contains(&canonical.as_str()) {
-        "android_system"
-    } else if REGIONAL_CANONICAL.contains(&canonical.as_str()) {
-        "regional"
-    } else if matches!(
-        canonical.as_str(),
-        "super"
-            | "system_ext"
-            | "vendor_dlkm"
-            | "odm_dlkm"
-            | "my_product"
-            | "my_region"
-            | "product"
-            | "vendor"
-            | "odm"
-            | "cache"
-            | "metadata"
-    ) || canonical.starts_with("system")
-        || canonical.starts_with("product")
-        || canonical.starts_with("vendor")
-        || canonical.starts_with("odm")
-    {
-        "android_system"
-    } else if canonical.contains("vbmeta")
-        || canonical.contains("boot")
-        || canonical.contains("dtbo")
-        || canonical.contains("recovery")
-        || canonical.contains("init_boot")
-    {
-        "boot_critical"
-    } else if canonical.contains("logo")
-        || canonical.contains("splash")
-        || canonical.contains("cust")
-    {
-        "regional"
-    } else if canonical.contains("modem")
-        || canonical.contains("radio")
-        || canonical.contains("dsp")
-        || canonical.ends_with("_fw")
-    {
-        "firmware"
-    } else {
-        "unknown"
+    match classify(&canonical) {
+        SafetyRole::Unknown => {
+            // Fallback: extended heuristic patterns
+            if matches!(
+                canonical.as_str(),
+                "super" | "system_ext" | "vendor_dlkm" | "odm_dlkm"
+                    | "my_product" | "my_region" | "product" | "vendor"
+                    | "odm" | "cache" | "metadata"
+            ) || canonical.starts_with("system")
+                || canonical.starts_with("product")
+                || canonical.starts_with("vendor")
+                || canonical.starts_with("odm")
+            {
+                "android_system"
+            } else if canonical.contains("vbmeta")
+                || canonical.contains("boot")
+                || canonical.contains("dtbo")
+                || canonical.contains("recovery")
+                || canonical.contains("init_boot")
+            {
+                "boot_critical"
+            } else if canonical.contains("logo")
+                || canonical.contains("splash")
+                || canonical.contains("cust")
+            {
+                "regional"
+            } else if canonical.contains("modem")
+                || canonical.contains("radio")
+                || canonical.contains("dsp")
+                || canonical.ends_with("_fw")
+            {
+                "firmware"
+            } else {
+                "unknown"
+            }
+        }
+        SafetyRole::BootloaderCritical => "bootloader_critical",
+        SafetyRole::BootChainOrAvb => "boot_critical",
+        SafetyRole::ModemFirmware | SafetyRole::McuFirmware => "firmware",
+        SafetyRole::AndroidDynamicOrSystem => "android_system",
+        SafetyRole::RegionalOrBranding => "regional",
+        SafetyRole::IdentityOrCalibration => "identity_or_calibration",
+        SafetyRole::Dangerous => "dangerous",
     }
     .to_string()
 }
@@ -139,24 +161,16 @@ pub fn safety_class(name: &str) -> String {
 #[must_use]
 pub fn role_for_name(name: &str) -> String {
     let canonical = canonical_name(name);
-    if IDENTITY_CANONICAL.contains(&canonical.as_str()) {
-        "identity_or_calibration"
-    } else if DANGEROUS_CANONICAL.contains(&canonical.as_str()) {
-        "dangerous"
-    } else if BOOTLOADER_CANONICAL.contains(&canonical.as_str()) {
-        "bootloader_critical"
-    } else if BOOT_CHAIN_CANONICAL.contains(&canonical.as_str()) {
-        "boot_chain_or_avb"
-    } else if MODEM_CANONICAL.contains(&canonical.as_str()) {
-        "modem_firmware"
-    } else if MCU_FW_CANONICAL.contains(&canonical.as_str()) {
-        "mcu_firmware"
-    } else if ANDROID_CANONICAL.contains(&canonical.as_str()) {
-        "android_dynamic_or_system"
-    } else if REGIONAL_CANONICAL.contains(&canonical.as_str()) {
-        "regional_or_branding"
-    } else {
-        "unknown"
+    match classify(&canonical) {
+        SafetyRole::IdentityOrCalibration => "identity_or_calibration",
+        SafetyRole::Dangerous => "dangerous",
+        SafetyRole::BootloaderCritical => "bootloader_critical",
+        SafetyRole::BootChainOrAvb => "boot_chain_or_avb",
+        SafetyRole::ModemFirmware => "modem_firmware",
+        SafetyRole::McuFirmware => "mcu_firmware",
+        SafetyRole::AndroidDynamicOrSystem => "android_dynamic_or_system",
+        SafetyRole::RegionalOrBranding => "regional_or_branding",
+        SafetyRole::Unknown => "unknown",
     }
     .to_string()
 }
