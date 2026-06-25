@@ -1,19 +1,20 @@
 import { useState, useEffect, useRef, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
 import {
   Zap,
-  Settings2,
-  Layers3,
+  Wrench,
+  Settings,
   PanelLeftClose,
   PanelLeftOpen,
   Sun,
   Moon,
 } from "lucide-react";
 
+const SIDEBAR_OPEN = 208;  // 13rem
+const SIDEBAR_COLLAPSED = 56; // 3.5rem
+
 interface AppLayoutProps {
   children: (props: { tab: string }) => ReactNode;
-  sidebarStatus?: ReactNode;
   sidebarActions?:
     | ReactNode
     | ((props: { sidebarOpen: boolean }) => ReactNode);
@@ -25,13 +26,12 @@ interface AppLayoutProps {
 
 const navItems = [
   { id: "main", label: "Flasher", icon: Zap },
-  { id: "tools", label: "Tools", icon: Settings2 },
-  { id: "settings", label: "Settings", icon: Layers3 },
+  { id: "tools", label: "Tools", icon: Wrench },
+  { id: "settings", label: "Settings", icon: Settings },
 ];
 
 export default function AppLayout({
   children,
-  sidebarStatus,
   sidebarActions,
   theme,
   onThemeChange,
@@ -75,19 +75,21 @@ export default function AppLayout({
   };
 
   return (
-    <div
-      className="grid h-dvh w-dvw overflow-hidden transition-[grid-template-columns] duration-200 ease-out"
-      style={{
-        gridTemplateColumns: sidebarOpen ? "14rem 1fr" : "4.5rem 1fr",
-      }}
-    >
+    <div className="grid h-dvh w-dvw overflow-hidden" style={{ gridTemplateColumns: "auto 1fr" }}>
       {/* Sidebar */}
-      <aside className="flex flex-col border-r border-border bg-sidebar px-3 py-4 overflow-hidden">
+      <aside
+        className="flex flex-col border-r border-sidebar-border bg-sidebar overflow-hidden transition-[width] duration-200 ease-out"
+        style={{ width: sidebarOpen ? SIDEBAR_OPEN : SIDEBAR_COLLAPSED }}
+      >
         {/* Brand + collapse */}
-        <div className="flex items-center justify-between mb-4">
-          {sidebarOpen && (
-            <span className="text-sm font-semibold tracking-[0.16em] text-muted-foreground">
-              PAWFLASH
+        <div className="flex items-center justify-between shrink-0 px-3 pt-4 pb-3">
+          {sidebarOpen ? (
+            <span className="text-[0.7rem] font-semibold tracking-[0.22em] text-muted-foreground/70 uppercase">
+              pawflash
+            </span>
+          ) : (
+            <span className="flex size-7 items-center justify-center rounded-md bg-accent-brand/20 text-[0.65rem] font-bold tracking-tight text-accent-brand">
+              pw
             </span>
           )}
           <Button
@@ -96,14 +98,12 @@ export default function AppLayout({
             onClick={toggleSidebar}
             aria-label={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
           >
-            {sidebarOpen ? <PanelLeftClose size={18} /> : <PanelLeftOpen size={18} />}
+            {sidebarOpen ? <PanelLeftClose size={16} /> : <PanelLeftOpen size={16} />}
           </Button>
         </div>
 
-        <Separator />
-
         {/* Nav */}
-        <nav className="flex flex-col gap-1 mt-3">
+        <nav className="flex flex-col gap-0.5 px-2 shrink-0">
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = tab === item.id;
@@ -114,12 +114,12 @@ export default function AppLayout({
                 size={sidebarOpen ? "default" : "icon-sm"}
                 className={
                   isActive
-                    ? "bg-accent-brand/12 text-accent-soft-foreground shadow-[var(--panel-shadow)] border border-accent-brand/25"
-                    : "text-muted-foreground hover:bg-accent-soft/70 hover:text-foreground"
+                    ? "relative bg-accent-brand/10 text-accent-brand after:absolute after:left-0 after:top-1/2 after:-translate-y-1/2 after:h-4 after:w-0.5 after:rounded-full after:bg-accent-brand"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
                 }
                 onClick={() => setTab(item.id)}
               >
-                <Icon size={18} />
+                <Icon size={16} />
                 {sidebarOpen && <span>{item.label}</span>}
               </Button>
             );
@@ -129,35 +129,26 @@ export default function AppLayout({
         {/* Spacer */}
         <div className="min-h-0 flex-1" />
 
-        {/* Status slot */}
-        {sidebarStatus && (
-          <div className="mb-3">
-            {sidebarStatus}
-          </div>
-        )}
-
         {/* Actions slot */}
         {sidebarActions && (
-          <div className="mb-3">
+          <div className="mb-3 px-3">
             {typeof sidebarActions === "function"
               ? sidebarActions({ sidebarOpen })
               : sidebarActions}
           </div>
         )}
 
-        <Separator />
-
         {/* Theme toggle */}
-        <div className="mt-3">
+        <div className="shrink-0 border-t border-sidebar-border px-3 py-3">
           {sidebarOpen ? (
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-2 gap-1.5">
               <Button
                 variant={theme === "light" ? "secondary" : "ghost"}
                 size="sm"
                 onClick={() => onThemeChange("light")}
                 className="w-full"
               >
-                <Sun size={16} />
+                <Sun size={14} />
                 <span>Light</span>
               </Button>
               <Button
@@ -166,7 +157,7 @@ export default function AppLayout({
                 onClick={() => onThemeChange("dark")}
                 className="w-full"
               >
-                <Moon size={16} />
+                <Moon size={14} />
                 <span>Dark</span>
               </Button>
             </div>
@@ -178,14 +169,14 @@ export default function AppLayout({
               aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
               className="w-full"
             >
-              {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+              {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
             </Button>
           )}
         </div>
       </aside>
 
       {/* Main */}
-      <main ref={mainRef} className="overflow-y-auto p-6">
+      <main ref={mainRef} className="overflow-y-auto p-5">
         {children({ tab })}
       </main>
     </div>

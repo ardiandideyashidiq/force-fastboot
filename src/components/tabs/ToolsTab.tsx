@@ -1,9 +1,6 @@
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
 import {
   FileText,
   Upload,
@@ -105,172 +102,175 @@ export default function ToolsTab() {
     setGsiLoading(false);
   };
 
-  return (
-    <div className="space-y-6">
-      {/* Scatter */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <FileText size={20} />
-            Scatter File
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <Button variant="outline" onClick={pickScatter}>
-            <Upload size={16} className="mr-2" />
-            Select Scatter File
-          </Button>
-          {scatterPath && (
-            <p className="text-sm font-mono text-muted-foreground truncate">
-              {scatterPath}
-            </p>
-          )}
-          {scatterLoading && (
-            <p className="text-sm text-muted-foreground">Parsing...</p>
-          )}
-          {scatterMeta && (() => {
-            const layoutNames = Object.keys(scatterMeta.layouts);
-            const partitionCount = Object.values(scatterMeta.layouts).reduce(
-              (sum, parts) => sum + parts.length, 0,
-            );
-            const chipset = scatterMeta.platform ?? scatterMeta.project ?? null;
-            return (
-              <div className="grid grid-cols-2 gap-2 text-sm">
-                <div>
-                  <span className="text-muted-foreground">Platform:</span>{" "}
-                  {scatterMeta.platform ?? "—"}
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Project:</span>{" "}
-                  {scatterMeta.project ?? "—"}
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Chipset:</span>{" "}
-                  {chipset ?? "—"}
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Partitions:</span>{" "}
-                  {partitionCount}
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Format:</span>{" "}
-                  {scatterMeta.format}
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Layouts:</span>{" "}
-                  {layoutNames.join(", ")}
-                </div>
-              </div>
-            );
-          })()}
-          {scatterMeta && (
-            <Button
-              variant="default"
-              size="sm"
-              onClick={() => {
-                invoke("execute_plan", {
-                  path: scatterPath,
-                  options: { mode: "selective", storage: "auto", parts: [], groups: [], firmware_dir: null, check_images: false, include_preloader: false },
-                });
-              }}
-            >
-              <Play size={16} className="mr-2" />
-              Execute Flash Plan
-            </Button>
-          )}
-        </CardContent>
-      </Card>
+  const handleExecutePlan = () => {
+    if (!scatterPath) return;
+    invoke("execute_plan", {
+      path: scatterPath,
+      options: {
+        mode: "selective",
+        storage: "auto",
+        parts: [],
+        groups: [],
+        firmware_dir: null,
+        check_images: false,
+        include_preloader: false,
+      },
+    });
+  };
 
-      <Separator />
+  return (
+    <div className="space-y-5">
+      {/* Scatter File */}
+      <section className="panel-shell overflow-hidden">
+        <div className="flex items-start gap-3 p-4">
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-accent-soft text-accent-soft-foreground">
+            <FileText size={16} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <h2 className="text-[0.8125rem] font-semibold text-foreground">
+              Scatter File
+            </h2>
+            <div className="mt-2 flex items-center gap-2">
+              <Button variant="outline" size="xs" onClick={pickScatter}>
+                <Upload size={12} className="mr-1" />
+                Select
+              </Button>
+              {scatterPath && (
+                <span className="text-[0.7rem] font-mono text-muted-foreground truncate max-w-[20rem]">
+                  {scatterPath}
+                </span>
+              )}
+            </div>
+
+            {scatterLoading && (
+              <p className="mt-2 text-[0.75rem] text-muted-foreground">Parsing...</p>
+            )}
+
+            {scatterMeta && (
+              <div className="mt-3 space-y-3">
+                <div className="grid grid-cols-3 gap-x-4 gap-y-1.5 text-[0.75rem]">
+                  <div>
+                    <span className="text-muted-foreground">Platform</span>
+                    <p className="font-medium">{scatterMeta.platform ?? "—"}</p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Project</span>
+                    <p className="font-medium">{scatterMeta.project ?? "—"}</p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Format</span>
+                    <p className="font-medium">{scatterMeta.format}</p>
+                  </div>
+                  {(() => {
+                    const partitionCount = Object.values(scatterMeta.layouts).reduce(
+                      (sum, parts) => sum + parts.length, 0,
+                    );
+                    const layoutNames = Object.keys(scatterMeta.layouts);
+                    return (
+                      <>
+                        <div>
+                          <span className="text-muted-foreground">Partitions</span>
+                          <p className="font-medium">{partitionCount}</p>
+                        </div>
+                        <div className="col-span-2">
+                          <span className="text-muted-foreground">Layouts</span>
+                          <p className="font-medium truncate">{layoutNames.join(", ")}</p>
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+                <Button
+                  variant="default"
+                  size="xs"
+                  onClick={handleExecutePlan}
+                >
+                  <Play size={12} className="mr-1" />
+                  Execute Flash Plan
+                </Button>
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
 
       {/* GSI Flash */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Gauge size={20} />
-            GSI Flash
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <Button variant="outline" onClick={pickGsi}>
-            <Upload size={16} className="mr-2" />
-            Select GSI Image
+      <section className="flex items-center justify-between gap-3 rounded-md border border-border/60 bg-card/80 px-4 py-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <Gauge size={14} className="shrink-0 text-muted-foreground" />
+          <div className="min-w-0">
+            <p className="text-[0.8125rem] font-medium text-foreground/90">GSI Flash</p>
+            {gsiPath && (
+              <p className="text-[0.7rem] font-mono text-muted-foreground truncate max-w-[14rem]">
+                {gsiPath}
+              </p>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <Button variant="ghost" size="xs" onClick={pickGsi}>
+            <Upload size={12} className="mr-1" />
+            Select
           </Button>
-          {gsiPath && (
-            <p className="text-sm font-mono text-muted-foreground truncate">
-              {gsiPath}
-            </p>
-          )}
           <Button
             variant="default"
+            size="xs"
             onClick={handleFlashGsi}
             disabled={!gsiPath || gsiLoading}
           >
-            {gsiLoading ? "Flashing..." : "Flash GSI"}
+            {gsiLoading ? "Flashing..." : "Flash"}
           </Button>
-        </CardContent>
-      </Card>
+        </div>
+      </section>
 
-      <Separator />
-
-      {/* Format Data */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <HardDrive size={20} />
-            Format Data
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="flex items-center gap-3">
-            <Label htmlFor="fs-type" className="text-sm">
-              Filesystem:
-            </Label>
+      {/* Format Data + Disable AVB */}
+      <div className="grid grid-cols-2 gap-3">
+        <section className="flex items-center justify-between gap-3 rounded-md border border-border/60 bg-card/80 px-4 py-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <HardDrive size={14} className="shrink-0 text-muted-foreground" />
+            <span className="text-[0.8125rem] font-medium text-foreground/90">Format Data</span>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
             <select
-              id="fs-type"
-              className="rounded-md border border-input bg-background px-3 py-1 text-sm"
+              className="h-7 rounded-md border border-input bg-transparent px-2 text-[0.75rem] text-foreground/80 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 outline-none"
               value={formatFsType}
               onChange={(e) => setFormatFsType(e.target.value)}
             >
               <option value="f2fs">F2FS</option>
               <option value="ext4">Ext4</option>
             </select>
+            <Button
+              variant="default"
+              size="xs"
+              onClick={handleFormatData}
+              disabled={formatLoading}
+            >
+              <Trash2 size={12} className="mr-1" />
+              {formatLoading ? "Working..." : "Format"}
+            </Button>
+          </div>
+        </section>
+
+        <section className="flex items-center justify-between gap-3 rounded-md border border-border/60 bg-card/80 px-4 py-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <ShieldOff size={14} className="shrink-0 text-muted-foreground" />
+            <div>
+              <p className="text-[0.8125rem] font-medium text-foreground/90">Disable AVB</p>
+              <p className="text-[0.65rem] text-muted-foreground/70 leading-tight">
+                dm-verity + AVB
+              </p>
+            </div>
           </div>
           <Button
-            variant="default"
-            onClick={handleFormatData}
-            disabled={formatLoading}
-          >
-            <Trash2 size={16} className="mr-2" />
-            {formatLoading ? "Formatting..." : "Format Data"}
-          </Button>
-        </CardContent>
-      </Card>
-
-      <Separator />
-
-      {/* Disable Vbmeta */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <ShieldOff size={20} />
-            Disable AVB
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground mb-3">
-            Flash empty vbmeta to both slots to disable dm-verity and AVB
-            verification.
-          </p>
-          <Button
             variant="destructive"
+            size="xs"
             onClick={handleDisableVbmeta}
             disabled={vbmetaLoading}
           >
-            {vbmetaLoading ? "Working..." : "Disable Vbmeta"}
+            {vbmetaLoading ? "Working..." : "Disable"}
           </Button>
-        </CardContent>
-      </Card>
+        </section>
+      </div>
     </div>
   );
 }
