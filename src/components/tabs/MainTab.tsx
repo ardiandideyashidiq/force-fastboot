@@ -11,6 +11,7 @@ import {
   Unlock,
   Cpu,
   Search,
+  Copy,
 } from "lucide-react";
 import type { DeviceInfo } from "@/types/api";
 
@@ -247,8 +248,20 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
           </Button>
         </div>
         {varResult && (
-          <div className="mt-2 rounded border border-border/50 bg-muted/30 px-2.5 py-1.5">
-            <code className="font-mono text-label text-foreground/80">{varResult}</code>
+          <div className="mt-2 flex items-start gap-2 rounded border border-border/50 bg-muted/30 px-2.5 py-1.5">
+            <code className="flex-1 font-mono text-label text-foreground/80 min-w-0">{varResult}</code>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              className="shrink-0 mt-0.5"
+              onClick={() => {
+                navigator.clipboard.writeText(varResult);
+                toast.success("Copied to clipboard");
+              }}
+              aria-label="Copy value"
+            >
+              <Copy size={12} />
+            </Button>
           </div>
         )}
       </section>

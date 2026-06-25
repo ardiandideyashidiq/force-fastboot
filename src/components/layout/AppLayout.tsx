@@ -88,8 +88,8 @@ export default function AppLayout({
               pawflash
             </span>
           ) : (
-            <span className="flex size-7 items-center justify-center rounded-md bg-accent-brand/20 text-caption font-bold tracking-tight text-accent-brand">
-              pw
+            <span className="flex size-7 items-center justify-center rounded-md bg-accent-brand/20 text-accent-brand">
+              <Zap size={16} />
             </span>
           )}
           <Button

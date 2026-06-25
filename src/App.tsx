@@ -49,6 +49,16 @@ function App() {
     fetchDevice();
   }, [fetchDevice]);
 
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "r" && !e.metaKey && !e.ctrlKey && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) {
+        fetchDevice();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [fetchDevice]);
+
   const handleReboot = useCallback(async (target: string | null) => {
     if (!target) return;
     setRebooting(target);
