@@ -487,6 +487,13 @@ fn scan_extents(
         Ok(extents)
     }
 
+    /// Fast zero-check using u128 word comparison.
+    #[cfg(not(unix))]
+    fn is_all_zero(buf: &[u8]) -> bool {
+        let (prefix, chunks, suffix) = unsafe { buf.align_to::<u128>() };
+        chunks.iter().all(|&w| w == 0) && prefix.iter().all(|&b| b == 0) && suffix.iter().all(|&b| b == 0)
+    }
+
     #[cfg(not(unix))]
     fn do_scan(
         file: &std::fs::File,
@@ -496,33 +503,46 @@ fn scan_extents(
         use std::io::{BufReader, Read};
         let mut reader = BufReader::with_capacity(1024 * 1024, file);
         let mut extents: Vec<(u64, u64, bool)> = Vec::new();
-        let mut block_buf = vec![0u8; blk as usize];
         let scan_blocks = effective_size / blk;
         let mut run_start: u64 = 0;
         let mut run_is_data = false;
+
+        const BLOCKS_PER_BATCH: u64 = 128;
+        let batch_bytes = (BLOCKS_PER_BATCH * blk) as usize;
+        let mut batch = vec![0u8; batch_bytes];
         let mut current_block: u64 = 0;
 
         while current_block < scan_blocks {
-            reader.read_exact(&mut block_buf).map_err(|_| {
+            let remaining = scan_blocks - current_block;
+            let batch_blocks = remaining.min(BLOCKS_PER_BATCH);
+            let read_bytes = (batch_blocks * blk) as usize;
+            reader.read_exact(&mut batch[..read_bytes]).map_err(|_| {
                 FlashError::SparseTruncated {
-                    read: (current_block as usize) * blk as usize,
-                    expected: scan_blocks as usize,
+                    read: (current_block * blk) as usize,
+                    expected: (scan_blocks * blk) as usize,
                 }
             })?;
-            let is_data = !block_buf.iter().all(|&b| b == 0);
-            if current_block == 0 {
-                run_is_data = is_data;
-            }
-            if is_data != run_is_data {
-                let len = (current_block - run_start) * blk;
-                if len > 0 {
-                    extents.push((run_start * blk, len, run_is_data));
+
+            for block_idx in 0..batch_blocks {
+                let start = (block_idx * blk) as usize;
+                let end = start + blk as usize;
+                let block_data = &batch[start..end];
+                let is_data = !is_all_zero(block_data);
+                if current_block == 0 {
+                    run_is_data = is_data;
                 }
-                run_start = current_block;
-                run_is_data = is_data;
+                if is_data != run_is_data {
+                    let len = (current_block - run_start) * blk;
+                    if len > 0 {
+                        extents.push((run_start * blk, len, run_is_data));
+                    }
+                    run_start = current_block;
+                    run_is_data = is_data;
+                }
+                current_block += 1;
             }
-            current_block += 1;
         }
+
         let len = (current_block - run_start) * blk;
         if len > 0 {
             extents.push((run_start * blk, len, run_is_data));
