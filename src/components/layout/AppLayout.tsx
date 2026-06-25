@@ -77,10 +77,13 @@ export default function AppLayout({
   return (
     <div
       className="grid h-dvh w-dvw overflow-hidden"
-      style={{ gridTemplateColumns: sidebarOpen ? `${SIDEBAR_OPEN}px 1fr` : `${SIDEBAR_COLLAPSED}px 1fr` }}
+      style={{ gridTemplateColumns: "auto 1fr" }}
     >
       {/* Sidebar */}
-      <aside className="flex flex-col border-r border-sidebar-border bg-sidebar overflow-hidden">
+      <aside
+        className="flex flex-col border-r border-sidebar-border bg-sidebar overflow-hidden min-w-0 transition-[width] duration-300 ease-out"
+        style={{ width: sidebarOpen ? SIDEBAR_OPEN : SIDEBAR_COLLAPSED }}
+      >
         {/* Brand + collapse */}
         <div className="flex items-center justify-between shrink-0 px-3 pt-4 pb-3 border-b border-accent-brand/15">
           {sidebarOpen ? (
@@ -109,9 +112,10 @@ export default function AppLayout({
                 variant="ghost"
                 size={sidebarOpen ? "default" : "icon-sm"}
                 className={
-                  isActive
-                    ? "relative bg-accent-brand/10 text-accent-brand after:absolute after:left-0 after:top-1/2 after:-translate-y-1/2 after:h-4 after:w-0.5 after:rounded-full after:bg-accent-brand"
-                    : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
+                  "relative after:absolute after:left-0 after:top-1/2 after:-translate-y-1/2 after:h-4 after:w-0.5 after:rounded-full after:transition-opacity after:duration-200 " +
+                  (isActive
+                    ? "bg-accent-brand/10 text-accent-brand after:bg-accent-brand after:opacity-100"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted/40 after:opacity-0")
                 }
                 onClick={() => setTab(item.id)}
               >

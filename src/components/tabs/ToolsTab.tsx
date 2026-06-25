@@ -12,6 +12,7 @@ import {
   ShieldOff,
   HardDrive,
   Gauge,
+  LoaderCircle,
 } from "lucide-react";
 import type { ScatterFile } from "@/types/api";
 
@@ -166,11 +167,14 @@ export default function ToolsTab() {
             </div>
 
             {scatterLoading && (
-              <p className="mt-2 text-label text-muted-foreground">Parsing...</p>
+              <p className="mt-2 text-label text-muted-foreground">
+                <LoaderCircle size={12} className="animate-spin inline mr-1" />
+                Parsing...
+              </p>
             )}
 
             {scatterMeta && (
-              <div className="mt-3 space-y-3">
+              <div className="animate-in fade-in slide-in-from-top-1 duration-200 mt-3 space-y-3">
                 <div className="grid grid-cols-3 max-sm:grid-cols-2 gap-x-4 gap-y-1.5 text-label">
                   <div>
                     <span className="text-muted-foreground">Platform</span>
@@ -233,7 +237,7 @@ export default function ToolsTab() {
             onClick={handleFlashGsi}
             disabled={!gsiPath || gsiLoading}
           >
-            {gsiLoading ? "Flashing..." : "Flash"}
+            {gsiLoading ? <><LoaderCircle size={12} className="animate-spin" /> Flashing...</> : "Flash"}
           </Button>
         </div>
       </section>
@@ -270,7 +274,7 @@ export default function ToolsTab() {
               disabled={formatLoading}
             >
               <Trash2 size={12} className="mr-1" />
-              {formatLoading ? "Working..." : "Format"}
+              {formatLoading ? <><LoaderCircle size={12} className="animate-spin" /> Working...</> : "Format"}
             </Button>
           </div>
         </section>
@@ -299,7 +303,7 @@ export default function ToolsTab() {
             }
             disabled={vbmetaLoading}
           >
-            {vbmetaLoading ? "Working..." : "Disable"}
+            {vbmetaLoading ? <><LoaderCircle size={12} className="animate-spin" /> Working...</> : "Disable"}
           </Button>
         </section>
       </div>

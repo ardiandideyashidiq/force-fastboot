@@ -12,6 +12,7 @@ import {
   Cpu,
   Search,
   Copy,
+  LoaderCircle,
 } from "lucide-react";
 import type { DeviceInfo } from "@/types/api";
 
@@ -124,9 +125,9 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
                 }
                 disabled={connecting}
               >
-                {connecting ? "Connecting..." : "Force Fastboot"}
+                {connecting ? <><LoaderCircle size={12} className="animate-spin" /> Connecting...</> : "Force Fastboot"}
               </Button>
-              <span className={`size-1.5 rounded-full ${connected ? "dot-complete" : "dot-waiting"}`} />
+              <span className={`size-1.5 rounded-full transition-colors duration-300 ${connected ? "dot-complete" : "dot-waiting animate-pulse"}`} />
               <span className="text-caption text-muted-foreground">
                 {connected ? "Device online" : "No device"}
               </span>
@@ -135,7 +136,7 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
         </div>
         {/* Connected device info strip */}
         {connected && (
-          <div className="border-t border-border/50 px-5 py-2.5 flex items-center gap-4 text-caption text-muted-foreground/80 bg-success/5">
+          <div className="animate-in fade-in slide-in-from-top-1 duration-200 border-t border-border/50 px-5 py-2.5 flex items-center gap-4 text-caption text-muted-foreground/80 bg-success/5">
             <span className="font-mono text-accent-brand/70">{device?.serial ?? "—"}</span>
             <span className="w-px h-3 bg-border/50" />
             <span>{vars.product ?? "—"}</span>
@@ -248,7 +249,7 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
           </Button>
         </div>
         {varResult && (
-          <div className="mt-2 flex items-start gap-2 rounded border border-border/50 bg-muted/30 px-2.5 py-1.5">
+          <div className="animate-in fade-in slide-in-from-top-1 duration-200 mt-2 flex items-start gap-2 rounded border border-border/50 bg-muted/30 px-2.5 py-1.5">
             <code className="flex-1 font-mono text-label text-foreground/80 min-w-0">{varResult}</code>
             <Button
               variant="ghost"
