@@ -21,7 +21,13 @@ cargo test --workspace
 # Run a single test
 cargo test -p pawflash-core <test_name>  # e.g. cargo test parse_int_should_accept_decimal
 
-# Lint (aggressive — project may not pass cleanly)
+# Lint frontend (eslint)
+pnpm lint
+
+# Type-check frontend (tsc — no emit)
+pnpm lint:tsc
+
+# Lint Rust (aggressive — project may not pass cleanly)
 cargo clippy --all-targets --all-features --locked -- -D warnings
 
 # Run Tauri dev server (requires frontend)

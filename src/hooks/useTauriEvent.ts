@@ -6,7 +6,10 @@ export function useTauriEvent<T = unknown>(
   handler: (payload: T) => void,
 ) {
   const handlerRef = useRef(handler);
-  handlerRef.current = handler;
+
+  useEffect(() => {
+    handlerRef.current = handler;
+  });
 
   useEffect(() => {
     let cancelled = false;
