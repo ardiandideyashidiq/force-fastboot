@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   FileText,
   Upload,
@@ -12,6 +14,13 @@ import {
 } from "lucide-react";
 import type { ScatterFile } from "@/types/api";
 
+interface ConfirmAction {
+  title: string;
+  description: string;
+  confirmLabel?: string;
+  onConfirm: () => void;
+}
+
 export default function ToolsTab() {
   const [scatterPath, setScatterPath] = useState("");
   const [scatterMeta, setScatterMeta] = useState<ScatterFile | null>(null);
@@ -21,6 +30,7 @@ export default function ToolsTab() {
   const [formatFsType, setFormatFsType] = useState("f2fs");
   const [gsiPath, setGsiPath] = useState("");
   const [gsiLoading, setGsiLoading] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState<ConfirmAction | null>(null);
 
   const pickScatter = async () => {
     try {
@@ -40,12 +50,12 @@ export default function ToolsTab() {
           });
           setScatterMeta(meta);
         } catch (e) {
-          console.error("Scatter parse failed:", e);
+          toast.error(`Failed to parse scatter: ${e}`);
         }
         setScatterLoading(false);
       }
     } catch (e) {
-      console.error("Dialog error:", e);
+      toast.error(`File dialog error: ${e}`);
     }
   };
 
@@ -62,7 +72,7 @@ export default function ToolsTab() {
         setGsiPath(selected as string);
       }
     } catch (e) {
-      console.error("Dialog error:", e);
+      toast.error(`File dialog error: ${e}`);
     }
   };
 
@@ -70,8 +80,9 @@ export default function ToolsTab() {
     setVbmetaLoading(true);
     try {
       await invoke("disable_vbmeta");
+      toast.success("AVB/verity disabled");
     } catch (e) {
-      console.error("Disable vbmeta failed:", e);
+      toast.error(`Failed to disable AVB: ${e}`);
     }
     setVbmetaLoading(false);
   };
@@ -82,8 +93,9 @@ export default function ToolsTab() {
       await invoke("format_data", {
         fsType: formatFsType,
       });
+      toast.success("Data partition formatted");
     } catch (e) {
-      console.error("Format data failed:", e);
+      toast.error(`Format failed: ${e}`);
     }
     setFormatLoading(false);
   };
@@ -96,8 +108,9 @@ export default function ToolsTab() {
         imagePath: gsiPath,
         cleanTest: false,
       });
+      toast.success("GSI flash complete");
     } catch (e) {
-      console.error("GSI flash failed:", e);
+      toast.error(`GSI flash failed: ${e}`);
     }
     setGsiLoading(false);
   };
@@ -242,7 +255,15 @@ export default function ToolsTab() {
             <Button
               variant="default"
               size="xs"
-              onClick={handleFormatData}
+              onClick={() =>
+                setConfirmDialog({
+                  title: "Format Data",
+                  description:
+                    "This will erase all user data on the device. The data partition will be reformatted and all contents will be lost. Continue?",
+                  confirmLabel: "Format",
+                  onConfirm: handleFormatData,
+                })
+              }
               disabled={formatLoading}
             >
               <Trash2 size={12} className="mr-1" />
@@ -264,13 +285,35 @@ export default function ToolsTab() {
           <Button
             variant="destructive"
             size="xs"
-            onClick={handleDisableVbmeta}
+            onClick={() =>
+              setConfirmDialog({
+                title: "Disable AVB",
+                description:
+                  "Disabling dm-verity and AVB will weaken device security verification. This is typically needed only when flashing custom firmware. Continue?",
+                confirmLabel: "Disable",
+                onConfirm: handleDisableVbmeta,
+              })
+            }
             disabled={vbmetaLoading}
           >
             {vbmetaLoading ? "Working..." : "Disable"}
           </Button>
         </section>
       </div>
+
+      {confirmDialog && (
+        <ConfirmDialog
+          open={!!confirmDialog}
+          onOpenChange={(open) => {
+            if (!open) setConfirmDialog(null);
+          }}
+          title={confirmDialog.title}
+          description={confirmDialog.description}
+          confirmLabel={confirmDialog.confirmLabel}
+          variant="destructive"
+          onConfirm={confirmDialog.onConfirm}
+        />
+      )}
     </div>
   );
 }

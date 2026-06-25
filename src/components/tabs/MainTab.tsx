@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   Zap,
   Lock,
@@ -11,6 +13,13 @@ import {
   Search,
 } from "lucide-react";
 import type { DeviceInfo } from "@/types/api";
+
+interface ConfirmAction {
+  title: string;
+  description: string;
+  confirmLabel?: string;
+  onConfirm: () => void;
+}
 
 interface MainTabProps {
   device: DeviceInfo | null;
@@ -23,6 +32,7 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
   const [varName, setVarName] = useState("");
   const [varResult, setVarResult] = useState("");
   const [varLoading, setVarLoading] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState<ConfirmAction | null>(null);
 
   const connected = device?.connected ?? false;
   const vars = device?.vars ?? {};
@@ -33,7 +43,7 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
       await invoke("force_fastboot");
       await onRefresh();
     } catch (e) {
-      console.error("Force fastboot failed:", e);
+      toast.error(`Force fastboot failed: ${e}`);
     }
     setConnecting(false);
   };
@@ -41,11 +51,11 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
   const handleLock = async () => {
     setLocking(true);
     try {
-      const resp = await invoke<string>("lock_bootloader");
-      console.log("Lock response:", resp);
+      await invoke<string>("lock_bootloader");
+      toast.success("Bootloader locked");
       await onRefresh();
     } catch (e) {
-      console.error("Lock failed:", e);
+      toast.error(`Lock failed: ${e}`);
     }
     setLocking(false);
   };
@@ -53,22 +63,22 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
   const handleUnlock = async () => {
     setLocking(true);
     try {
-      const resp = await invoke<string>("unlock_bootloader");
-      console.log("Unlock response:", resp);
+      await invoke<string>("unlock_bootloader");
+      toast.success("Bootloader unlocked");
       await onRefresh();
     } catch (e) {
-      console.error("Unlock failed:", e);
+      toast.error(`Unlock failed: ${e}`);
     }
     setLocking(false);
   };
 
   const handleSetSlot = async (slot: string) => {
     try {
-      const resp = await invoke<string>("set_active_slot", { slot });
-      console.log(`Slot ${slot} set:`, resp);
+      await invoke<string>("set_active_slot", { slot });
+      toast.success(`Slot ${slot} set`);
       await onRefresh();
     } catch (e) {
-      console.error(`Set slot ${slot} failed:`, e);
+      toast.error(`Set slot ${slot} failed: ${e}`);
     }
   };
 
@@ -102,7 +112,15 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
             <div className="mt-3 flex items-center gap-3">
               <Button
                 size="sm"
-                onClick={forceFastboot}
+                onClick={() =>
+                  setConfirmDialog({
+                    title: "Force Fastboot",
+                    description:
+                      "This will attempt to force your MediaTek device into fastboot mode via preloader serial handshake. Ensure the device is powered off and connected via USB.",
+                    confirmLabel: "Force",
+                    onConfirm: forceFastboot,
+                  })
+                }
                 disabled={connecting}
               >
                 {connecting ? "Connecting..." : "Force Fastboot"}
@@ -140,7 +158,15 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
           <Button
             variant="ghost"
             size="xs"
-            onClick={handleLock}
+            onClick={() =>
+              setConfirmDialog({
+                title: "Lock Bootloader",
+                description:
+                  "Locking the bootloader will re-enable verified boot. This may prevent flashing custom firmware. Continue?",
+                confirmLabel: "Lock",
+                onConfirm: handleLock,
+              })
+            }
             disabled={locking || !connected}
           >
             <Lock size={12} className="mr-1" />
@@ -149,7 +175,15 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
           <Button
             variant="ghost"
             size="xs"
-            onClick={handleUnlock}
+            onClick={() =>
+              setConfirmDialog({
+                title: "Unlock Bootloader",
+                description:
+                  "Unlocking the bootloader will disable verified boot and may wipe user data. Continue?",
+                confirmLabel: "Unlock",
+                onConfirm: handleUnlock,
+              })
+            }
             disabled={locking || !connected}
           >
             <Unlock size={12} className="mr-1" />
@@ -217,6 +251,20 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
           </div>
         )}
       </section>
+
+      {confirmDialog && (
+        <ConfirmDialog
+          open={!!confirmDialog}
+          onOpenChange={(open) => {
+            if (!open) setConfirmDialog(null);
+          }}
+          title={confirmDialog.title}
+          description={confirmDialog.description}
+          confirmLabel={confirmDialog.confirmLabel}
+          variant="destructive"
+          onConfirm={confirmDialog.onConfirm}
+        />
+      )}
     </div>
   );
 }

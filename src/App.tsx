@@ -1,9 +1,9 @@
 import { useState, useEffect, lazy, Suspense, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { toast, Toaster } from "sonner";
 import AppLayout from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Select, SelectTrigger, SelectContent, SelectItem } from "@/components/ui/select";
-import { Toaster } from "sonner";
 import { RotateCcw, RefreshCw } from "lucide-react";
 import type { Theme, DeviceInfo } from "@/types/api";
 
@@ -40,7 +40,7 @@ function App() {
       const info = await invoke<DeviceInfo>("get_device_info");
       setDevice(info);
     } catch (e) {
-      console.error("Failed to get device info:", e);
+      toast.error(`Failed to get device info: ${e}`);
     }
     setDeviceLoading(false);
   }, []);
@@ -55,7 +55,7 @@ function App() {
     try {
       await invoke("reboot_device", { target });
     } catch (e) {
-      console.error("Reboot failed:", e);
+      toast.error(`Reboot failed: ${e}`);
     }
     setRebooting(null);
   }, []);
