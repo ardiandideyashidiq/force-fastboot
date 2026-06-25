@@ -34,6 +34,7 @@ cargo test <test_name>  # e.g. cargo test parse_int_should_accept_decimal
 
 ## Code style
 
+- **Zero warning suppressions.** Never add `#[allow(...)]` or `#[expect(...)]`. Fix the underlying issue instead — add missing docs, extract helpers, use `try_from` for casts, group bools into enums, etc.
 - **Modular code required.** Keep files focused and under ~400 lines. If a file grows beyond that, split it into a directory module with submodules — each submodule gets one clear responsibility.
 - No `pub(crate)` helper functions living in type-definition files. Extract shared helpers into their own module (e.g. `scatter_parser/util.rs`).
 - When splitting, use `sort` in the directory listing above to show submodules in order.
