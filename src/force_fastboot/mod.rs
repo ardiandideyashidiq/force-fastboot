@@ -1,5 +1,3 @@
-#![allow(missing_docs)]
-
 //! Force a `MediaTek` device into fastboot mode by repeatedly sending the
 //! `FASTBOOT` handshake over its preloader serial port.
 //!

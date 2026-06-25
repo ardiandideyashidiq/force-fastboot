@@ -9,7 +9,6 @@ use crate::scatter_parser::types::ResolvedPath;
 
 /// Resolve an image file path from a scatter partition's `file_name`.
 #[must_use]
-#[allow(clippy::too_many_lines)]
 pub fn resolve_image_path(
     file_name: Option<&str>,
     scatter_dir: Option<&Path>,
@@ -18,12 +17,7 @@ pub fn resolve_image_path(
     image_search: bool,
 ) -> ResolvedPath {
     let Some(original) = file_name else {
-        return ResolvedPath {
-            original: None, normalized: None, resolved_path: None,
-            resolved_via: None, exists: None, is_absolute_input: false,
-            input_style: None, contains_parent_reference: false,
-            outside_package_root: None, warning: None,
-        };
+        return empty_resolved_path();
     };
     let normalized = normalize_path_display(original);
     let contains_parent = mixed_path_parts(&normalized)
@@ -37,65 +31,15 @@ pub fn resolve_image_path(
         "posix"
     };
 
-    let mut candidates: Vec<(&str, PathBuf)> = Vec::new();
-    if normalized.starts_with('/') {
-        candidates.push(("absolute", PathBuf::from(&normalized)));
-    } else if is_windows_absolute(original) {
-        candidates.push(("windows_absolute", PathBuf::from(original)));
-        let stripped = mixed_parts_path(original);
-        if let Some(fd) = firmware_dir {
-            candidates.push(("firmware_dir_windows_stripped", fd.join(&stripped)));
-        }
-        if let Some(sd) = scatter_dir {
-            candidates.push((
-                "scatter_relative_windows_stripped",
-                sd.join(&stripped),
-            ));
-        }
-    } else {
-        let rel = mixed_parts_path(&normalized);
-        if let Some(fd) = firmware_dir {
-            candidates.push(("firmware_dir_relative", fd.join(&rel)));
-        }
-        if let Some(sd) = scatter_dir {
-            candidates.push(("scatter_relative", sd.join(&rel)));
-        }
-    }
+    let candidates = build_candidates(original, &normalized, firmware_dir, scatter_dir);
+    let meta = ResolveMeta { original, normalized: &normalized, absolute_input, input_style, contains_parent };
 
     let mut warning: Option<String> = None;
-    for &(via, ref candidate) in &candidates {
-        let candidate = absolutize(candidate);
-        let outside =
-            package_root.as_ref().map(|root| !is_within(&candidate, root));
-        if outside == Some(true) {
-            warning = Some(format!(
-                "resolved image path is outside package_root: {}",
-                candidate.display()
-            ));
-            continue;
-        }
-        if candidate.exists() {
-            return resolved_path_result(ResolvedPathParts {
-                original,
-                normalized: &normalized,
-                resolved_path: Some(candidate),
-                resolved_via: Some(via),
-                exists: Some(true),
-                is_absolute_input: absolute_input,
-                input_style,
-                contains_parent_reference: contains_parent,
-                outside_package_root: outside,
-                warning,
-            });
-        }
+    if let Some(found) = check_existing_candidates(&candidates, package_root, &mut warning, &meta) {
+        return found;
     }
 
-    let first_allowed = candidates.iter().find_map(|&(via, ref candidate)| {
-        let candidate = absolutize(candidate);
-        let outside =
-            package_root.as_ref().map(|root| !is_within(&candidate, root));
-        (outside != Some(true)).then_some((via, candidate, outside))
-    });
+    let first_allowed = find_first_allowed(&candidates, package_root);
 
     if image_search {
         let mut seen = std::collections::BTreeSet::new();
@@ -104,9 +48,9 @@ pub fn resolve_image_path(
             if !seen.insert(root.clone()) {
                 continue;
             }
-            let basename = Path::new(&normalized)
+            let basename = Path::new(&meta.normalized)
                 .file_name()
-                .unwrap_or_else(|| OsStr::new(&normalized));
+                .unwrap_or_else(|| OsStr::new(&meta.normalized));
             match unique_basename_search(&root, basename) {
                 Ok(Some(found)) => {
                     let outside = package_root
@@ -120,14 +64,14 @@ pub fn resolve_image_path(
                         continue;
                     }
                     return resolved_path_result(ResolvedPathParts {
-                        original,
-                        normalized: &normalized,
+                        original: meta.original,
+                        normalized: &meta.normalized,
                         resolved_path: Some(found),
                         resolved_via: Some("image_search_unique_basename"),
                         exists: Some(true),
-                        is_absolute_input: absolute_input,
-                        input_style,
-                        contains_parent_reference: contains_parent,
+                        is_absolute_input: meta.absolute_input,
+                        input_style: meta.input_style,
+                        contains_parent_reference: meta.contains_parent,
                         outside_package_root: outside,
                         warning,
                     });
@@ -143,29 +87,118 @@ pub fn resolve_image_path(
 
     if let Some((via, candidate, outside)) = first_allowed {
         return resolved_path_result(ResolvedPathParts {
-            original,
-            normalized: &normalized,
+            original: meta.original,
+            normalized: &meta.normalized,
             resolved_path: Some(candidate),
             resolved_via: Some(via),
             exists: Some(false),
-            is_absolute_input: absolute_input,
-            input_style,
-            contains_parent_reference: contains_parent,
+            is_absolute_input: meta.absolute_input,
+            input_style: meta.input_style,
+            contains_parent_reference: meta.contains_parent,
             outside_package_root: outside,
             warning,
         });
     }
     resolved_path_result(ResolvedPathParts {
-        original,
-        normalized: &normalized,
+        original: meta.original,
+        normalized: &meta.normalized,
         resolved_path: None,
         resolved_via: None,
         exists: Some(false),
-        is_absolute_input: absolute_input,
-        input_style,
-        contains_parent_reference: contains_parent,
+        is_absolute_input: meta.absolute_input,
+        input_style: meta.input_style,
+        contains_parent_reference: meta.contains_parent,
         outside_package_root: package_root.as_ref().map(|_| true),
         warning: warning.or_else(|| Some("no allowed image path candidate".to_string())),
+    })
+}
+
+const fn empty_resolved_path() -> ResolvedPath {
+    ResolvedPath {
+        original: None, normalized: None, resolved_path: None,
+        resolved_via: None, exists: None, is_absolute_input: false,
+        input_style: None, contains_parent_reference: false,
+        outside_package_root: None, warning: None,
+    }
+}
+
+struct ResolveMeta<'a> {
+    original: &'a str,
+    normalized: &'a str,
+    absolute_input: bool,
+    input_style: &'a str,
+    contains_parent: bool,
+}
+
+fn build_candidates<'a>(
+    original: &'a str,
+    normalized: &'a str,
+    firmware_dir: Option<&Path>,
+    scatter_dir: Option<&Path>,
+) -> Vec<(&'a str, PathBuf)> {
+    let mut candidates: Vec<(&str, PathBuf)> = Vec::new();
+    if normalized.starts_with('/') {
+        candidates.push(("absolute", PathBuf::from(normalized)));
+    } else if is_windows_absolute(original) {
+        candidates.push(("windows_absolute", PathBuf::from(original)));
+        let stripped = mixed_parts_path(original);
+        if let Some(fd) = firmware_dir {
+            candidates.push(("firmware_dir_windows_stripped", fd.join(&stripped)));
+        }
+        if let Some(sd) = scatter_dir {
+            candidates.push(("scatter_relative_windows_stripped", sd.join(&stripped)));
+        }
+    } else {
+        let rel = mixed_parts_path(normalized);
+        if let Some(fd) = firmware_dir {
+            candidates.push(("firmware_dir_relative", fd.join(&rel)));
+        }
+        if let Some(sd) = scatter_dir {
+            candidates.push(("scatter_relative", sd.join(&rel)));
+        }
+    }
+    candidates
+}
+
+fn check_existing_candidates(
+    candidates: &[(&str, PathBuf)],
+    package_root: Option<&Path>,
+    warning: &mut Option<String>,
+    meta: &ResolveMeta<'_>,
+) -> Option<ResolvedPath> {
+    for &(via, ref candidate) in candidates {
+        let candidate = absolutize(candidate);
+        let outside = package_root.as_ref().map(|root| !is_within(&candidate, root));
+        if outside == Some(true) {
+            *warning = Some(format!("resolved image path is outside package_root: {}", candidate.display()));
+            continue;
+        }
+        if candidate.exists() {
+            return Some(resolved_path_result(ResolvedPathParts {
+                original: meta.original,
+                normalized: &meta.normalized,
+                resolved_path: Some(candidate),
+                resolved_via: Some(via),
+                exists: Some(true),
+                is_absolute_input: meta.absolute_input,
+                input_style: meta.input_style,
+                contains_parent_reference: meta.contains_parent,
+                outside_package_root: outside,
+                warning: warning.clone(),
+            }));
+        }
+    }
+    None
+}
+
+fn find_first_allowed<'a>(
+    candidates: &'a [(&'a str, PathBuf)],
+    package_root: Option<&Path>,
+) -> Option<(&'a str, PathBuf, Option<bool>)> {
+    candidates.iter().find_map(|&(via, ref candidate)| {
+        let candidate = absolutize(candidate);
+        let outside = package_root.as_ref().map(|root| !is_within(&candidate, root));
+        (outside != Some(true)).then_some((via, candidate, outside))
     })
 }
 

@@ -11,19 +11,75 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde_json::{json, Value};
 use tracing::debug;
 use crate::scatter_parser::types::{
-    FlashPlan, FlashPlanOptions, ScatterFile, SkippedPartition,
+    FlashAction, FlashPlan, FlashPlanOptions, ScatterFile, SkippedPartition,
 };
+
+fn compute_image_counts(actions: &[FlashAction]) -> (usize, usize, usize) {
+    let missing_images = actions
+        .iter()
+        .filter(|a| {
+            a.action == "flash"
+                && a.image
+                    .as_ref()
+                    .and_then(|img| img.pointer("/path/exists"))
+                    == Some(&Value::Bool(false))
+        })
+        .count();
+    let oversized_images = actions
+        .iter()
+        .filter(|a| {
+            a.action == "flash"
+                && a.image
+                    .as_ref()
+                    .and_then(|img| img.pointer("/status/fits_partition"))
+                    == Some(&Value::Bool(false))
+        })
+        .count();
+    let action_warning_count = actions
+        .iter()
+        .map(|a| a.warnings.len())
+        .sum::<usize>();
+    (missing_images, oversized_images, action_warning_count)
+}
+
+fn apply_exclude_filter(
+    actions: &mut Vec<FlashAction>,
+    skipped: &mut Vec<SkippedPartition>,
+    warnings: &mut Vec<String>,
+    exclude: &[String],
+    available_names: &BTreeSet<String>,
+) {
+    if exclude.is_empty() {
+        return;
+    }
+    let excluded_names = slot::expand_requested_names(exclude, available_names);
+    let excluded_set: BTreeSet<_> = excluded_names.iter().collect();
+    let (kept, removed): (Vec<_>, Vec<_>) = core::mem::take(actions)
+        .into_iter()
+        .partition(|a| !excluded_set.contains(&a.partition.to_lowercase()));
+    for action in removed {
+        skipped.push(SkippedPartition {
+            partition: action.partition,
+            layout: action.layout,
+            region: action.region,
+            reason: "excluded by --exclude".into(),
+            safety_class: action.safety_class,
+            file_name: action.image_type,
+        });
+    }
+    *actions = kept;
+    if actions.is_empty() {
+        warnings.push("all eligible partitions were excluded by --exclude".into());
+    }
+}
 
 /// Build a safe flash plan for a parsed scatter file.
 ///
 /// # Errors
 ///
 /// Returns [`Error::InvalidValue`] if partition fields cannot be parsed.
-// Takes `options` by value: fields are moved into the plan without cloning.
 #[must_use]
-#[expect(clippy::needless_pass_by_value)]
-#[allow(clippy::too_many_lines)]
-pub fn build_flash_plan(scatter: &ScatterFile, options: FlashPlanOptions) -> FlashPlan {
+pub fn build_flash_plan(scatter: &ScatterFile, options: &FlashPlanOptions) -> FlashPlan {
     debug!(
         mode = %mode::mode_str(options.mode),
         storage = %mode::storage_str(options.storage),
@@ -53,7 +109,7 @@ pub fn build_flash_plan(scatter: &ScatterFile, options: FlashPlanOptions) -> Fla
 
     for part in &selected_parts {
         let (selected, selection_reason) =
-            mode::select_partition_for_mode(part, &options, &explicit_names);
+            mode::select_partition_for_mode(part, options, &explicit_names);
 
         if !selected {
             skipped.push(action::skipped_partition(part, "not selected"));
@@ -67,14 +123,14 @@ pub fn build_flash_plan(scatter: &ScatterFile, options: FlashPlanOptions) -> Fla
         let image_source =
             slot::inherited_image_source_for_slot_b(part, &parts_by_name);
         let (allowed, reason) =
-            mode::mode_allows_partition(part, image_source, options.mode, options.include_preloader, options.clean);
+            mode::mode_allows_partition(part, image_source, options.mode, options.slot_policy.include_preloader, options.clean);
         if !allowed {
             skipped.push(action::skipped_partition(part, &reason));
             continue;
         }
 
         let (image, action_warnings) =
-            image::resolve_images_for_plan(image_source, scatter_dir, &options);
+            image::resolve_images_for_plan(image_source, scatter_dir, options);
         let action_reason = if selection_reason.is_empty() {
             slot::inherited_action_reason(reason, part, image_source)
         } else {
@@ -100,67 +156,22 @@ pub fn build_flash_plan(scatter: &ScatterFile, options: FlashPlanOptions) -> Fla
 
     slot::synthesize_slot_actions_if_needed(&selected_parts, &mut actions);
 
-    // Apply --exclude filter: remove any action whose partition matches.
-    if !options.exclude.is_empty() {
-        let excluded_names =
-            slot::expand_requested_names(&options.exclude, &available_names);
-        let excluded_set: BTreeSet<_> = excluded_names.iter().collect();
-        let (kept, removed): (Vec<_>, Vec<_>) = actions
-            .into_iter()
-            .partition(|a| !excluded_set.contains(&a.partition.to_lowercase()));
-        for action in removed {
-            skipped.push(SkippedPartition {
-                partition: action.partition,
-                layout: action.layout,
-                region: action.region,
-                reason: "excluded by --exclude".into(),
-                safety_class: action.safety_class,
-                file_name: action.image_type,
-            });
-        }
-        actions = kept;
-        if actions.is_empty() {
-            warnings.push("all eligible partitions were excluded by --exclude".into());
-        }
-    }
+    apply_exclude_filter(&mut actions, &mut skipped, &mut warnings, &options.exclude, &available_names);
 
     let incomplete_slots = slot::check_incomplete_slots(
         &selected_parts,
         &actions,
-        options.allow_incomplete_slots,
+        options.slot_policy.allow_incomplete_slots,
         &mut warnings,
         &mut errors,
     );
 
-    let missing_images = actions
-        .iter()
-        .filter(|a| {
-            a.action == "flash"
-                && a.image
-                    .as_ref()
-                    .and_then(|img| img.pointer("/path/exists"))
-                    == Some(&Value::Bool(false))
-        })
-        .count();
-    let oversized_images = actions
-        .iter()
-        .filter(|a| {
-            a.action == "flash"
-                && a.image
-                    .as_ref()
-                    .and_then(|img| img.pointer("/status/fits_partition"))
-                    == Some(&Value::Bool(false))
-        })
-        .count();
-    let action_warning_count = actions
-        .iter()
-        .map(|a| a.warnings.len())
-        .sum::<usize>();
+    let (missing_images, oversized_images, action_warning_count) = compute_image_counts(&actions);
 
-    if options.check_images && missing_images > 0 {
+    if options.image_handling.check_images && missing_images > 0 {
         errors.push(format!("missing images: {missing_images}"));
     }
-    if options.check_images && oversized_images > 0 {
+    if options.image_handling.check_images && oversized_images > 0 {
         errors.push(format!("oversized images: {oversized_images}"));
     }
 
@@ -173,13 +184,13 @@ pub fn build_flash_plan(scatter: &ScatterFile, options: FlashPlanOptions) -> Fla
     );
 
     let summary = action::finalize_plan_summary(&actions, action::PlanSummaryCounts {
-        skipped_count: skipped.len(),
-        missing_image_count: missing_images,
-        oversized_image_count: oversized_images,
-        action_warning_count,
-        incomplete_slot_base_count: incomplete_slots.len(),
-        warning_count: warnings.len(),
-        error_count: errors.len(),
+        skipped: skipped.len(),
+        missing_image: missing_images,
+        oversized_image: oversized_images,
+        action_warnings: action_warning_count,
+        incomplete_slot_bases: incomplete_slots.len(),
+        warnings: warnings.len(),
+        errors: errors.len(),
     });
 
     FlashPlan {
@@ -191,14 +202,14 @@ pub fn build_flash_plan(scatter: &ScatterFile, options: FlashPlanOptions) -> Fla
         firmware_dir: options.firmware_dir.as_ref().map(|p| p.to_string_lossy().into_owned()),
         package_root: options.package_root.as_ref().map(|p| p.to_string_lossy().into_owned()),
         options: json!({
-            "check_images": options.check_images,
-            "image_search": options.image_search,
-            "include_preloader": options.include_preloader,
-            "allow_incomplete_slots": options.allow_incomplete_slots,
+            "check_images": options.image_handling.check_images,
+            "image_search": options.image_handling.image_search,
+            "include_preloader": options.slot_policy.include_preloader,
+            "allow_incomplete_slots": options.slot_policy.allow_incomplete_slots,
             "clean": options.clean,
-            "parts": options.parts,
-            "groups": options.groups,
-            "exclude": options.exclude,
+            "parts": options.parts.clone(),
+            "groups": options.groups.clone(),
+            "exclude": options.exclude.clone(),
         }),
         summary,
         actions,
@@ -293,7 +304,8 @@ mod tests {
             errors: Vec::new(),
         };
 
-        let plan = build_flash_plan(&scatter, FlashPlanOptions::default());
+        let default_options = FlashPlanOptions::default();
+        let plan = build_flash_plan(&scatter, &default_options);
         assert_eq!(plan.selected_layouts, vec!["UFS"]);
     }
 
@@ -321,11 +333,12 @@ mod tests {
             warnings: Vec::new(),
             errors: Vec::new(),
         };
-        let plan = build_flash_plan(&scatter, FlashPlanOptions {
+        let options = FlashPlanOptions {
             mode: Mode::Selective,
             parts: vec!["boot_a".to_string()],
             ..FlashPlanOptions::default()
-        });
+        };
+        let plan = build_flash_plan(&scatter, &options);
         assert!(!plan.errors.is_empty(), "expected incomplete slot errors");
         assert!(
             plan.errors.iter().any(|e| e.contains("boot")),
@@ -337,10 +350,11 @@ mod tests {
     #[test]
     fn build_flash_plan_should_synthesize_non_download_b_slots() {
         let scatter = synthetic_ab_scatter();
-        let plan = build_flash_plan(&scatter, FlashPlanOptions {
+        let options = FlashPlanOptions {
             mode: Mode::DryRun,
             ..FlashPlanOptions::default()
-        });
+        };
+        let plan = build_flash_plan(&scatter, &options);
         let b_actions: Vec<_> = plan
             .actions
             .iter()
@@ -357,10 +371,11 @@ mod tests {
     #[test]
     fn dry_run_should_skip_userdata() {
         let scatter = synthetic_ab_scatter();
-        let plan = build_flash_plan(&scatter, FlashPlanOptions {
+        let options = FlashPlanOptions {
             mode: Mode::DryRun,
             ..FlashPlanOptions::default()
-        });
+        };
+        let plan = build_flash_plan(&scatter, &options);
         assert!(
             !plan.actions.iter().any(|a| a.partition == "userdata"),
             "dry run should skip userdata"

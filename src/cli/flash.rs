@@ -9,27 +9,35 @@ use crate::flash::FlashExecutor;
 use crate::output;
 use crate::scatter_parser as sp;
 
-/// Grouped config for scatter operations. Avoids passing arguments individually.
-#[expect(clippy::struct_excessive_bools)]
+#[derive(Debug)]
+enum ScatterOutput {
+    Show { full_json: bool },
+    DryRun,
+    Execute,
+}
+
+#[derive(Debug)]
+enum CleanAction {
+    None,
+    Format,
+    CleanTest,
+}
+
+/// Grouped config for scatter operations.
 struct ScatterConfig<'a> {
     scatter_path: &'a Path,
-    show: bool,
-    full_json: bool,
-    dry_run: bool,
-    json: bool,
+    output: ScatterOutput,
     mode: sp::Mode,
     storage: sp::StorageSelect,
     parts: &'a [String],
     groups: &'a [String],
     exclude: &'a [String],
     firmware_dir: Option<&'a Path>,
-    check_images: bool,
+    image_handling: sp::ImageHandling,
     include_preloader: bool,
-    image_search: bool,
     allow_incomplete_slots: bool,
-    clean: bool,
-    no_format: bool,
-    clean_test: bool,
+    json: bool,
+    clean_action: CleanAction,
 }
 
 fn print_flash_help() -> Result<()> {
@@ -81,8 +89,23 @@ pub async fn run(
             };
             let scatter_path = p.clone();
 
-            if !show
-                && !dry_run
+            let output = if show {
+                ScatterOutput::Show { full_json }
+            } else if dry_run {
+                ScatterOutput::DryRun
+            } else {
+                ScatterOutput::Execute
+            };
+
+            let clean_action = if clean_test {
+                CleanAction::CleanTest
+            } else if clean && !no_format {
+                CleanAction::Format
+            } else {
+                CleanAction::None
+            };
+
+            if matches!(output, ScatterOutput::Execute)
                 && mode == sp::Mode::Selective
                 && part.is_empty()
                 && group.is_empty()
@@ -94,23 +117,18 @@ pub async fn run(
 
             let cfg = ScatterConfig {
                 scatter_path: &scatter_path,
-                show,
-                full_json,
-                dry_run,
-                json,
+                output,
                 mode,
                 storage,
                 parts: part,
                 groups: group,
                 exclude,
                 firmware_dir: firmware_dir.as_deref(),
-                clean,
-                no_format,
-                clean_test,
-                check_images,
+                image_handling: sp::ImageHandling { check_images, image_search },
                 include_preloader,
-                image_search,
                 allow_incomplete_slots,
+                json,
+                clean_action,
             };
             run_scatter(&cfg).await?;
         }
@@ -137,14 +155,14 @@ pub async fn run(
 
 async fn run_scatter(cfg: &ScatterConfig<'_>) -> Result<()> {
     debug!(
-        scatter_path = %cfg.scatter_path.display(), show = cfg.show, dry_run = cfg.dry_run, ?cfg.mode,
+        scatter_path = %cfg.scatter_path.display(), ?cfg.output, ?cfg.mode,
         parts = %cfg.parts.join(","),
         "run_scatter entered",
     );
 
     // ── Mode 1: Show scatter metadata ────────────────────────────
-    if cfg.show {
-        return show_scatter_metadata(cfg.scatter_path, cfg.full_json);
+    if let ScatterOutput::Show { full_json } = cfg.output {
+        return show_scatter_metadata(cfg.scatter_path, full_json);
     }
 
     // ── Parse scatter and build plan (shared) ────────────────────
@@ -157,6 +175,9 @@ async fn run_scatter(cfg: &ScatterConfig<'_>) -> Result<()> {
         parsed.layouts.len(),
     );
 
+    let is_dry_run = matches!(cfg.output, ScatterOutput::DryRun);
+    let is_clean = matches!(cfg.clean_action, CleanAction::Format | CleanAction::CleanTest);
+
     let options = sp::FlashPlanOptions {
         mode: cfg.mode,
         storage: cfg.storage,
@@ -167,31 +188,29 @@ async fn run_scatter(cfg: &ScatterConfig<'_>) -> Result<()> {
         package_root: Some(cfg.scatter_path.parent()
             .unwrap_or_else(|| std::path::Path::new("."))
             .to_path_buf()),
-        check_images: cfg.check_images,
-        image_search: cfg.image_search,
-        include_preloader: cfg.include_preloader,
-        allow_incomplete_slots: cfg.allow_incomplete_slots,
-        clean: cfg.clean || cfg.clean_test,
+        image_handling: cfg.image_handling.clone(),
+        slot_policy: sp::SlotPolicy { include_preloader: cfg.include_preloader, allow_incomplete_slots: cfg.allow_incomplete_slots },
+        clean: is_clean,
     };
 
     info!("building flash plan");
-    let plan = sp::build_flash_plan(&parsed, options);
+    let plan = sp::build_flash_plan(&parsed, &options);
     debug!(actions = plan.actions.len(), skipped = plan.skipped.len(), "flash plan built");
 
     // Show errors early (before bail! so user sees them)
     if !plan.errors.is_empty() {
         output::status::stderr(output::tables::plan_errors(&plan).unwrap_or_default());
-        if !cfg.dry_run {
+        if !is_dry_run {
             bail!("flash plan errors prevent execution (use --dry-run to see full report)");
         }
     }
 
-    if plan.actions.is_empty() && !cfg.dry_run {
+    if plan.actions.is_empty() && !is_dry_run {
         bail!("flash plan has no actions to execute");
     }
 
     // ── Mode 2: Dry run ─────────────────────────────────────────
-    if cfg.dry_run {
+    if is_dry_run {
         return print_plan(&plan, cfg.json);
     }
 
@@ -209,10 +228,10 @@ async fn run_scatter(cfg: &ScatterConfig<'_>) -> Result<()> {
     .await?;
 
     // ── Optional: format data partitions (--clean/--clean-test) ────
-    let do_format = (cfg.clean || cfg.clean_test) && !cfg.no_format;
-    if do_format {
+    let is_clean_test = matches!(cfg.clean_action, CleanAction::CleanTest);
+    if is_clean {
         output::status::heading("Formatting data partitions");
-        let fmt_result = executor.format_data(0, cfg.clean_test, None).await;
+        let fmt_result = executor.format_data(0, is_clean_test, None).await;
         let fmt_failed = output::format_display::print_format_results(&fmt_result);
         if fmt_failed > 0 {
             bail!("format-data failed with {fmt_failed} failure(s)");

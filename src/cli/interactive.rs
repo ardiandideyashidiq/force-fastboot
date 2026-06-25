@@ -74,26 +74,27 @@ async fn do_reboot(executor: &mut FlashExecutor, target: &str) -> Result<()> {
 
 /// Run the interactive flash flow: show plan, confirm, execute with progress,
 /// then reboot.
-#[allow(clippy::missing_panics_doc, clippy::missing_errors_doc)]
+///
+/// # Errors
+///
+/// Returns an error if the scatter file cannot be parsed, the plan cannot
+/// be built, the device is not reachable, or any flash operation fails.
 pub async fn run(scatter_path: &Path, exclude: &[String], clean: bool, no_format: bool, clean_test: bool) -> Result<()> {
     let parsed = sp::parse_scatter(scatter_path)
         .with_context(|| format!("failed to parse {}", scatter_path.display()))?;
 
-    let plan = sp::build_flash_plan(
-        &parsed,
-        sp::FlashPlanOptions {
-            mode: sp::Mode::DirtyFlash,
-            storage: sp::StorageSelect::Auto,
-            check_images: true,
-            image_search: true,
-            exclude: exclude.to_vec(),
-            clean: clean || clean_test,
-            package_root: Some(scatter_path.parent()
-                .unwrap_or_else(|| std::path::Path::new("."))
-                .to_path_buf()),
-            ..Default::default()
-        },
-    );
+    let options = sp::FlashPlanOptions {
+        mode: sp::Mode::DirtyFlash,
+        storage: sp::StorageSelect::Auto,
+        image_handling: sp::ImageHandling { check_images: true, image_search: true },
+        exclude: exclude.to_vec(),
+        clean: clean || clean_test,
+        package_root: Some(scatter_path.parent()
+            .unwrap_or_else(|| std::path::Path::new("."))
+            .to_path_buf()),
+        ..Default::default()
+    };
+    let plan = sp::build_flash_plan(&parsed, &options);
 
     let do_format = !no_format
         && (clean || clean_test)

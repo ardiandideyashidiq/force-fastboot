@@ -35,13 +35,11 @@ impl FlashExecutor {
         let partitions = ["userdata", "metadata", "cache"];
 
         // Warn if not in fastbootd — caller should have transitioned.
-        #[allow(clippy::map_unwrap_or)]
         let is_fastbootd = self
             .fb
             .get_var("is-userspace")
             .await
-            .map(|v| v == "yes")
-            .unwrap_or(false);
+            .is_ok_and(|v| v == "yes");
         if !is_fastbootd {
             warn!("format-data: device is in bootloader mode — logical partitions may not be accessible");
         }
@@ -188,8 +186,65 @@ impl FlashExecutor {
         debug!("no BCB-capable partition found (misc/para)");
     }
 
+    async fn partition_type(&mut self, partition: &str) -> Result<String, FormatOutcome> {
+        match self.fb.get_var(&format!("partition-type:{partition}")).await {
+            Ok(t) if !t.is_empty() => Ok(t),
+            Ok(_) => Err(FormatOutcome {
+                partition: partition.into(),
+                status: FormatStatus::Skipped("empty partition type".into()),
+            }),
+            Err(_) => Err(FormatOutcome {
+                partition: partition.into(),
+                status: FormatStatus::Skipped("partition not found".into()),
+            }),
+        }
+    }
+
+    fn determine_fs_type<'a>(&self, partition: &'a str, partition_type: &str, fs_type_override: Option<FsType>) -> Result<FsType, FormatOutcome> {
+        match (partition, fs_type_override) {
+            ("userdata", Some(t)) => Ok(t),
+            (_, _) => match FsType::from_partition_type(partition_type) {
+                Some(t) => Ok(t),
+                None if partition == "userdata" => {
+                    info!(%partition, reported = %partition_type, "defaulting to f2fs");
+                    Ok(FsType::F2fs)
+                }
+                None if ["metadata", "cache"].contains(&partition) => {
+                    info!(%partition, reported = %partition_type, "defaulting to ext4");
+                    Ok(FsType::Ext4)
+                }
+                None => Err(FormatOutcome {
+                    partition: partition.into(),
+                    status: FormatStatus::ErasedOnly(partition_type.to_string()),
+                }),
+            },
+        }
+    }
+
+    async fn query_partition_size(&mut self, partition: &str) -> Result<u64, FormatOutcome> {
+        match self.fb.get_var(&format!("partition-size:{partition}")).await {
+            Ok(s) => {
+                let size = parse_getvar_hex_u64(&s).unwrap_or(0);
+                if size == 0 {
+                    Err(FormatOutcome {
+                        partition: partition.into(),
+                        status: FormatStatus::Failed(FlashError::ActionFailed {
+                            partition: partition.into(),
+                            reason: "partition size is 0".into(),
+                        }),
+                    })
+                } else {
+                    Ok(size)
+                }
+            }
+            Err(e) => Err(FormatOutcome {
+                partition: partition.into(),
+                status: FormatStatus::Failed(FlashError::from(e)),
+            }),
+        }
+    }
+
     /// Erase, generate empty filesystem, download, and flash a single partition.
-    #[allow(clippy::too_many_lines, clippy::too_many_arguments)]
     async fn wipe_partition(
         &mut self,
         partition: &str,
@@ -203,24 +258,12 @@ impl FlashExecutor {
         fs_type_override: Option<FsType>,
     ) -> FormatOutcome {
         debug!(%partition, "wipe_partition: querying partition type");
-        let partition_type = match self.fb.get_var(&format!("partition-type:{partition}")).await {
-            Ok(t) if !t.is_empty() => t,
-            Ok(_) => {
-                return FormatOutcome {
-                    partition: partition.into(),
-                    status: FormatStatus::Skipped("empty partition type".into()),
-                };
-            }
-            Err(_) => {
-                return FormatOutcome {
-                    partition: partition.into(),
-                    status: FormatStatus::Skipped("partition not found".into()),
-                };
-            }
+        let partition_type = match self.partition_type(partition).await {
+            Ok(t) => t,
+            Err(outcome) => return outcome,
         };
 
         info!(%partition, "erasing");
-        debug!(%partition, "sending erase command");
         if let Err(e) = self.fb.erase(partition).await {
             return FormatOutcome {
                 partition: partition.into(),
@@ -228,34 +271,9 @@ impl FlashExecutor {
             };
         }
 
-        // Determine filesystem type.
-        // Priority: override > auto-detect from bootloader > platform default.
-        debug!(%partition, %partition_type, "determining filesystem type");
-        let fs_type = match (partition, fs_type_override) {
-            // Explicit override (--fs-type flag) applies to userdata only.
-            ("userdata", Some(t)) => t,
-            // Auto-detect from the bootloader's partition-type variable, or
-            // apply platform-default when the HAL reports "raw".
-            (_, _) => match FsType::from_partition_type(&partition_type) {
-                Some(t) => t,
-                None if partition == "userdata" => {
-                    // MTK fastbootd often reports "raw" — default to f2fs
-                    // (Android 11+ standard for userdata).
-                    info!(%partition, reported = %partition_type, "defaulting to f2fs");
-                    FsType::F2fs
-                }
-                None if ["metadata", "cache"].contains(&partition) => {
-                    // Metadata/cache are always ext4 per AOSP convention.
-                    info!(%partition, reported = %partition_type, "defaulting to ext4");
-                    FsType::Ext4
-                }
-                None => {
-                    return FormatOutcome {
-                        partition: partition.into(),
-                        status: FormatStatus::ErasedOnly(partition_type),
-                    };
-                }
-            },
+        let fs_type = match self.determine_fs_type(partition, &partition_type, fs_type_override) {
+            Ok(t) => t,
+            Err(outcome) => return outcome,
         };
 
         if clean_test {
@@ -265,25 +283,10 @@ impl FlashExecutor {
             };
         }
 
-        debug!(%partition, "querying partition size");
-        let part_size = match self.fb.get_var(&format!("partition-size:{partition}")).await {
-            Ok(s) => parse_getvar_hex_u64(&s).unwrap_or(0),
-            Err(e) => {
-                return FormatOutcome {
-                    partition: partition.into(),
-                    status: FormatStatus::Failed(FlashError::from(e)),
-                };
-            }
+        let part_size = match self.query_partition_size(partition).await {
+            Ok(s) => s,
+            Err(outcome) => return outcome,
         };
-        if part_size == 0 {
-            return FormatOutcome {
-                partition: partition.into(),
-                status: FormatStatus::Failed(FlashError::ActionFailed {
-                    partition: partition.into(),
-                    reason: "partition size is 0".into(),
-                }),
-            };
-        }
 
         let fs_size = part_size.saturating_sub(footer_size);
         debug!(%partition, %partition_type, part_size, fs_size, footer_size, "generating empty filesystem");

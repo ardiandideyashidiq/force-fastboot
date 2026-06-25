@@ -14,12 +14,12 @@ pub(crate) fn resolve_images_for_plan(
         scatter_dir,
         options.firmware_dir.as_deref(),
         options.package_root.as_deref(),
-        options.image_search,
+        options.image_handling.image_search,
     );
     let (status, mut warnings) = checked_image_status(
         resolved.resolved_path.as_deref(),
         resolved.exists,
-        options.check_images,
+        options.image_handling.check_images,
         part.size,
     );
     if let Some(warning) = &resolved.warning {

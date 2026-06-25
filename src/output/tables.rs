@@ -217,9 +217,8 @@ pub fn plan_skipped(plan: &FlashPlan) -> Option<String> {
 
 // ── Device info ──────────────────────────────────────────────────────
 
-#[allow(clippy::implicit_hasher)]
 #[must_use]
-pub fn device_info(vars: &HashMap<String, String>) -> String {
+pub fn device_info<S: std::hash::BuildHasher>(vars: &HashMap<String, String, S>) -> String {
     let rows: Vec<MetaRow> = vars
         .iter()
         .map(|(k, v)| MetaRow {

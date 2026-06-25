@@ -44,15 +44,14 @@ pub(crate) fn skipped_partition(part: &ScatterPartition, reason: &str) -> Skippe
 }
 
 #[derive(Clone, Copy)]
-#[allow(clippy::struct_field_names)]
 pub(crate) struct PlanSummaryCounts {
-    pub(crate) skipped_count: usize,
-    pub(crate) missing_image_count: usize,
-    pub(crate) oversized_image_count: usize,
-    pub(crate) action_warning_count: usize,
-    pub(crate) incomplete_slot_base_count: usize,
-    pub(crate) warning_count: usize,
-    pub(crate) error_count: usize,
+    pub(crate) skipped: usize,
+    pub(crate) missing_image: usize,
+    pub(crate) oversized_image: usize,
+    pub(crate) action_warnings: usize,
+    pub(crate) incomplete_slot_bases: usize,
+    pub(crate) warnings: usize,
+    pub(crate) errors: usize,
 }
 
 pub(crate) const fn finalize_plan_summary(
@@ -61,12 +60,12 @@ pub(crate) const fn finalize_plan_summary(
 ) -> FlashPlanSummary {
     FlashPlanSummary {
         flash_count: actions.len(),
-        skipped_count: counts.skipped_count,
-        missing_image_count: counts.missing_image_count,
-        oversized_image_count: counts.oversized_image_count,
-        action_warning_count: counts.action_warning_count,
-        incomplete_slot_base_count: counts.incomplete_slot_base_count,
-        warning_count: counts.warning_count,
-        error_count: counts.error_count,
+        skipped_count: counts.skipped,
+        missing_image_count: counts.missing_image,
+        oversized_image_count: counts.oversized_image,
+        action_warning_count: counts.action_warnings,
+        incomplete_slot_base_count: counts.incomplete_slot_bases,
+        warning_count: counts.warnings,
+        error_count: counts.errors,
     }
 }

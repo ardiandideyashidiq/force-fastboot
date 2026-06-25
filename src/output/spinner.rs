@@ -35,7 +35,10 @@ pub fn fail(pb: &ProgressBar) {
 }
 
 /// Create a progress bar for flash/download operations.
-#[allow(clippy::missing_panics_doc)]
+///
+/// # Panics
+///
+/// Panics if the template string is invalid (always valid for the built-in template).
 #[must_use]
 pub fn progress_bar(len: u64) -> ProgressBar {
     let pb = ProgressBar::new(len);
@@ -43,7 +46,7 @@ pub fn progress_bar(len: u64) -> ProgressBar {
         ProgressStyle::with_template(
             "{prefix:>16}: [{bar:40.green/red}] {bytes}/{total_bytes}  {bytes_per_sec}  ETA {eta}  [{elapsed_precise}]",
         )
-        .unwrap()
+        .expect("valid progress bar template")
         .progress_chars("█▉▊▋▌▍▎▏ "),
     );
     pb

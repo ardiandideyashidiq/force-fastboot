@@ -175,10 +175,58 @@ async fn transition_mode(
     unreachable!()
 }
 
-// ── Top-level entry point ────────────────────────────────────────────
+// ── GSI stage machine ────────────────────────────────────────────────
 
-#[allow(clippy::ref_option)]
-fn check_cancelled(cancel_token: &Option<Arc<AtomicBool>>) -> Result<()> {
+struct GsiCounters {
+    flash_count: Cell<u64>,
+    wipe_count: Cell<u64>,
+    skipped_count: Cell<u64>,
+    total_bytes: Cell<u64>,
+}
+
+fn make_reporter<'a>(
+    counters: &'a GsiCounters,
+    inner: &'a mut impl FnMut(GsiEvent),
+) -> impl FnMut(GsiEvent) + 'a {
+    let GsiCounters { flash_count, wipe_count, skipped_count, total_bytes } = counters;
+    |event: GsiEvent| {
+        match &event {
+            GsiEvent::Flashing { size_bytes, .. } => {
+                flash_count.set(flash_count.get() + 1);
+                total_bytes.set(total_bytes.get() + size_bytes);
+            }
+            GsiEvent::Wiping { .. } => {
+                wipe_count.set(wipe_count.get() + 1);
+            }
+            GsiEvent::PartitionSkipped { .. } => {
+                skipped_count.set(skipped_count.get() + 1);
+            }
+            _ => {}
+        }
+        inner(event);
+    }
+}
+
+enum GsiStage {
+    FlashVbmeta,
+    WipeUserdata,
+    FlashSystem,
+}
+
+fn plan_stage_groups(mode: FastbootMode) -> Vec<(FastbootMode, Vec<GsiStage>)> {
+    match mode {
+        FastbootMode::Bootloader => vec![
+            (FastbootMode::Bootloader, vec![GsiStage::FlashVbmeta, GsiStage::WipeUserdata]),
+            (FastbootMode::Fastbootd, vec![GsiStage::FlashSystem]),
+        ],
+        FastbootMode::Fastbootd => vec![
+            (FastbootMode::Fastbootd, vec![GsiStage::FlashSystem]),
+            (FastbootMode::Bootloader, vec![GsiStage::FlashVbmeta, GsiStage::WipeUserdata]),
+        ],
+    }
+}
+
+fn check_cancelled(cancel_token: Option<&Arc<AtomicBool>>) -> Result<()> {
     if let Some(token) = cancel_token {
         if token.load(std::sync::atomic::Ordering::Relaxed) {
             anyhow::bail!("GSI flash cancelled by user");
@@ -200,7 +248,6 @@ fn check_cancelled(cancel_token: &Option<Arc<AtomicBool>>) -> Result<()> {
 ///
 /// Returns an error if image validation, mode transitions, partition
 /// resolution, vbmeta flash, userdata wipe, or GSI flash fails.
-#[allow(clippy::too_many_lines, clippy::cast_possible_truncation)]
 pub async fn execute_gsi_flash(
     mut executor: FlashExecutor,
     image: &Path,
@@ -215,62 +262,27 @@ pub async fn execute_gsi_flash(
         .await
         .with_context(|| format!("cannot determine expanded size of {}", image.display()))?;
 
-    let flash_count = Cell::new(0u64);
-    let wipe_count = Cell::new(0u64);
-    let skipped_count = Cell::new(0u64);
-    let total_bytes = Cell::new(0u64);
-
-    let mut report = |event: GsiEvent| {
-        match &event {
-            GsiEvent::Flashing { size_bytes, .. } => {
-                flash_count.set(flash_count.get() + 1);
-                total_bytes.set(total_bytes.get() + size_bytes);
-            }
-            GsiEvent::Wiping { .. } => {
-                wipe_count.set(wipe_count.get() + 1);
-            }
-            GsiEvent::PartitionSkipped { .. } => {
-                skipped_count.set(skipped_count.get() + 1);
-            }
-            _ => {}
-        }
-        user_report(event);
+    let counters = GsiCounters {
+        flash_count: Cell::new(0u64),
+        wipe_count: Cell::new(0u64),
+        skipped_count: Cell::new(0u64),
+        total_bytes: Cell::new(0u64),
     };
+    let mut report = make_reporter(&counters, &mut user_report);
 
     report(GsiEvent::ModeDetected(mode));
 
     let tools_dir = extract_tools()?;
     let tools_root = tools_dir.path().to_path_buf();
 
-    enum GsiStage {
-        FlashVbmeta,
-        WipeUserdata,
-        FlashSystem,
-    }
-
-    // Determine which mode each stage group requires and their order.
-    // Bootloader-first: vbmeta + wipe in bootloader, then transition to fastbootd for flash.
-    // Fastbootd-first: flash in fastbootd, then transition to bootloader for vbmeta + wipe.
-    let stage_groups: Vec<(FastbootMode, Vec<GsiStage>)> = match mode {
-        FastbootMode::Bootloader => vec![
-            (FastbootMode::Bootloader, vec![GsiStage::FlashVbmeta, GsiStage::WipeUserdata]),
-            (FastbootMode::Fastbootd, vec![GsiStage::FlashSystem]),
-        ],
-        FastbootMode::Fastbootd => vec![
-            (FastbootMode::Fastbootd, vec![GsiStage::FlashSystem]),
-            (FastbootMode::Bootloader, vec![GsiStage::FlashVbmeta, GsiStage::WipeUserdata]),
-        ],
-    };
-
-    for (required_mode, stages) in stage_groups {
-        // Transition mode if needed.
+    for (required_mode, stages) in plan_stage_groups(mode) {
         if detect_fastboot_mode(executor.device_vars()) != required_mode {
-            check_cancelled(&cancel_token)?;
+            check_cancelled(cancel_token.as_ref())?;
             executor = transition_mode(executor, required_mode, &mut report).await?;
         }
 
         for stage in &stages {
-            check_cancelled(&cancel_token)?;
+            check_cancelled(cancel_token.as_ref())?;
             match stage {
                 GsiStage::FlashVbmeta => {
                     report(GsiEvent::Step(GsiStep::PreparingVbmetaFlash));
@@ -289,15 +301,17 @@ pub async fn execute_gsi_flash(
                         size_bytes: system_size,
                     });
 
-                    let product_overflow_size = product_gsi_overflow_size(system_size, gsi_expanded_size);
+                    let overflow = GsiOverflow {
+                        expanded_size: gsi_expanded_size,
+                        product_overflow: product_gsi_overflow_size(system_size, gsi_expanded_size),
+                    };
                     flash_system_and_product(
                         &mut executor,
                         image,
-                        gsi_expanded_size,
+                        overflow,
                         &system_partition,
-                        product_overflow_size,
                         &tools_root,
-                        &cancel_token,
+                        cancel_token.as_ref(),
                         &mut report,
                     )
                     .await?;
@@ -309,16 +323,15 @@ pub async fn execute_gsi_flash(
     drop(tools_dir);
     report(GsiEvent::Step(GsiStep::GsiFlowComplete));
 
-    // Reboot to system so the device boots the newly flashed GSI.
     info!("rebooting to system");
     executor.reboot().await?;
 
     Ok(GsiFlashOutcome {
         summary: GsiFlashSummary {
-            flash_count: flash_count.get() as usize,
-            wipe_count: wipe_count.get() as usize,
-            skipped_count: skipped_count.get() as usize,
-            total_bytes: total_bytes.get(),
+            flash_count: usize::try_from(counters.flash_count.get()).expect("flash count fits usize"),
+            wipe_count: usize::try_from(counters.wipe_count.get()).expect("wipe count fits usize"),
+            skipped_count: usize::try_from(counters.skipped_count.get()).expect("skipped count fits usize"),
+            total_bytes: counters.total_bytes.get(),
         },
     })
 }
@@ -331,6 +344,11 @@ fn extract_tools() -> Result<TempDir> {
 
 // ── Shared helpers ───────────────────────────────────────────────────
 
+struct GsiOverflow {
+    expanded_size: u64,
+    product_overflow: u64,
+}
+
 /// Flash the system GSI and (if needed) product GSI, both in fastbootd
 /// mode where logical partitions are accessible.
 ///
@@ -339,15 +357,13 @@ fn extract_tools() -> Result<TempDir> {
 /// expanded to fit the GSI. Both resizes are explicit because sparse-split
 /// flashing writes past the original partition boundary — the device
 /// rejects writes beyond the current size.
-#[allow(clippy::ref_option, clippy::too_many_arguments)]
 async fn flash_system_and_product(
     executor: &mut FlashExecutor,
     image: &Path,
-    gsi_expanded_size: u64,
+    overflow: GsiOverflow,
     system_partition: &str,
-    product_overflow_size: u64,
     tools_root: &Path,
-    cancel_token: &Option<Arc<AtomicBool>>,
+    cancel_token: Option<&Arc<AtomicBool>>,
     report: &mut impl FnMut(GsiEvent),
 ) -> Result<()> {
     check_cancelled(cancel_token)?;
@@ -355,7 +371,7 @@ async fn flash_system_and_product(
 
     let file_size = tokio::fs::metadata(image).await?.len();
 
-    if product_overflow_size > 0 {
+    if overflow.product_overflow > 0 {
         let product_partition = system_partition.replace("system", "product");
 
         // Phase 1: shrink product to free super space, then expand system
@@ -368,8 +384,8 @@ async fn flash_system_and_product(
             executor.resize_logical_partition(&product_partition, MINIMAL_PRODUCT_GSI_SIZE).await?;
         }
         if is_system_logical {
-            debug!(partition = %system_partition, size = gsi_expanded_size, "expanding system to GSI size");
-            executor.resize_logical_partition(system_partition, gsi_expanded_size).await?;
+            debug!(partition = %system_partition, size = overflow.expanded_size, "expanding system to GSI size");
+            executor.resize_logical_partition(system_partition, overflow.expanded_size).await?;
         }
 
         // Phase 2: generate minimal product_gsi and flash both partitions

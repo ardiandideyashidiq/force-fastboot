@@ -402,7 +402,6 @@ pub(crate) async fn sparse_wrap_file(
 /// The region from `effective_size` to `part_size` is always emitted as a
 /// DONTCARE chunk (bootloader writes zeros), matching TWRP's crypto-footer
 /// wipe behaviour.
-#[allow(clippy::too_many_lines, clippy::cast_possible_truncation)]
 fn scan_extents(
     path: &Path,
     scan_size: u64,
@@ -536,21 +535,35 @@ fn scan_extents(
 
     let extents = do_scan(&file, scan_size.min(effective_size), blk)?;
 
+    build_split_chunks(&extents, effective_size, part_size, blk)
+}
+
+fn build_split_chunks(
+    extents: &[(u64, u64, bool)],
+    effective_size: u64,
+    part_size: u64,
+    blk: u64,
+) -> Result<Vec<SplitChunk>> {
     let mut chunks: Vec<SplitChunk> = Vec::new();
-    for (offset, len, is_data) in &extents {
+    for &(offset, len, is_data) in extents {
         let blocks = len / blk;
         if blocks == 0 {
             continue;
         }
-        if *is_data {
+        let blocks_u32 = u32::try_from(blocks)
+            .map_err(|_| FlashError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("block count {blocks} exceeds u32 range"),
+            )))?;
+        if is_data {
             chunks.push(SplitChunk {
-                header: ChunkHeader::new_raw(blocks as u32, DEFAULT_BLOCKSIZE),
-                offset: usize::try_from(*offset).unwrap_or(usize::MAX),
-                size: usize::try_from(*len).unwrap_or(usize::MAX),
+                header: ChunkHeader::new_raw(blocks_u32, DEFAULT_BLOCKSIZE),
+                offset: usize::try_from(offset).unwrap_or(usize::MAX),
+                size: usize::try_from(len).unwrap_or(usize::MAX),
             });
         } else {
             chunks.push(SplitChunk {
-                header: ChunkHeader::new_dontcare(blocks as u32),
+                header: ChunkHeader::new_dontcare(blocks_u32),
                 offset: 0,
                 size: 0,
             });
@@ -562,8 +575,13 @@ fn scan_extents(
     if part_size > effective_size {
         let fb = (part_size - effective_size) / blk;
         if fb > 0 {
+            let fb_u32 = u32::try_from(fb)
+                .map_err(|_| FlashError::Io(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("footer block count {fb} exceeds u32 range"),
+                )))?;
             chunks.push(SplitChunk {
-                header: ChunkHeader::new_dontcare(fb as u32),
+                header: ChunkHeader::new_dontcare(fb_u32),
                 offset: 0,
                 size: 0,
             });
@@ -606,9 +624,10 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::erasing_op)]
     fn zero_partition_yields_zero_blocks() {
-        let blk = u64::from(android_sparse_image::DEFAULT_BLOCKSIZE);
-        assert_eq!(0u64 / blk, 0, "zero partition means zero blocks");
+        assert!(
+            u64::from(android_sparse_image::DEFAULT_BLOCKSIZE) > 0,
+            "block size must be positive",
+        );
     }
 }

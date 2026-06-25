@@ -52,13 +52,18 @@ pub struct FlashExecutor {
     device_vars: HashMap<String, String>,
 }
 
-#[allow(clippy::missing_errors_doc)]
 impl FlashExecutor {
     /// Connect to the first available fastboot device and query its variables.
     /// If more than one device is found, emits a warning suggesting the user
     /// disconnect extras to avoid targeting the wrong device.
     /// When `EXPECTED_SERIAL` is set, only devices with matching serials are
     /// considered; a `DeviceMismatch` error is returned if no device matches.
+    ///
+    /// # Errors
+    ///
+    /// Returns `FlashError::NoDevice` if no fastboot device is found, or
+    /// `FlashError::DeviceMismatch` if the device serial does not match
+    /// the expected value.
     pub async fn connect() -> Result<Self> {
         let expected = expected_serial();
 
@@ -166,11 +171,19 @@ impl FlashExecutor {
     }
 
     /// Get a fastboot variable from the device.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the device does not respond or the variable does not exist.
     pub async fn get_var(&mut self, var: &str) -> Result<String> {
         self.fb.get_var(var).await.map_err(FlashError::from)
     }
 
     /// Get all fastboot variables from the device (with 10s timeout).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the device does not respond within the timeout.
     pub async fn get_all_vars(&mut self) -> Result<HashMap<String, String>> {
         tokio::time::timeout(
             std::time::Duration::from_secs(10),
@@ -182,34 +195,59 @@ impl FlashExecutor {
     }
 
     /// Reboot the device (to system).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the reboot command fails.
     pub async fn reboot(&mut self) -> Result<()> {
         self.fb.reboot().await.map_err(FlashError::from).map(drop)
     }
 
     /// Reboot to a specific mode (bootloader, fastboot, recovery).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the reboot command fails.
     pub async fn reboot_to(&mut self, target: BootTarget) -> Result<()> {
         self.fb.reboot_to(target.as_str()).await.map_err(FlashError::from).map(drop)
     }
 
     /// Lock the bootloader.
     /// Returns the device response message.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bootloader cannot be locked.
     pub async fn flashing_lock(&mut self) -> Result<String> {
         self.fb.flashing("lock").await.map_err(FlashError::from)
     }
 
     /// Unlock the bootloader.
     /// Returns the device response message.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bootloader cannot be unlocked.
     pub async fn flashing_unlock(&mut self) -> Result<String> {
         self.fb.flashing("unlock").await.map_err(FlashError::from)
     }
 
     /// Set the active boot slot.
     /// Returns the device response message.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the slot cannot be set.
     pub async fn set_active_slot(&mut self, slot: &str) -> Result<String> {
         self.fb.set_active(slot).await.map_err(FlashError::from)
     }
 
     /// Verify that the connected device matches the expected platform/project.
+    ///
+    /// # Errors
+    ///
+    /// Returns `FlashError::DeviceMismatch` if the device product does not match
+    /// the plan's platform.
     pub async fn verify_device(&mut self, plan: &FlashPlan) -> Result<()> {
         let product = self.fb.get_var("product").await?;
         if let Some(ref platform) = plan.platform {
@@ -294,11 +332,19 @@ impl FlashExecutor {
     }
 
     /// Check whether a partition is a logical (dynamic) partition.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the fastboot query fails.
     pub async fn is_logical(&mut self, partition: &str) -> Result<bool> {
         self.fb.is_logical(partition).await.map_err(FlashError::from)
     }
 
     /// Resize a logical partition to the given size.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the resize command fails.
     pub async fn resize_logical_partition(&mut self, partition: &str, size: u64) -> Result<()> {
         self.fb
             .resize_logical_partition(partition, size)
@@ -314,6 +360,10 @@ impl FlashExecutor {
     /// before it can be claimed. An initial grace period is applied before the
     /// first attempt, and a progress message is printed every 5 seconds so the
     /// user knows we are still waiting.
+    ///
+    /// # Errors
+    ///
+    /// Returns `FlashError::NoDevice` if no device appears within the timeout.
     pub async fn wait_for_device(timeout: Duration) -> Result<Self> {
         // After reboot, USB re-enumeration needs a moment.
         tokio::time::sleep(Duration::from_secs(2)).await;
@@ -345,6 +395,10 @@ impl FlashExecutor {
     /// The response read is intentionally ignored — the device disconnects
     /// immediately after receiving the reboot command, causing USB transfer
     /// errors that are harmless.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the device does not reappear within 120 seconds.
     pub async fn reboot_and_wait(mut self, target: BootTarget) -> Result<Self> {
         debug!(?target, "rebooting device and waiting for reconnect");
         if let Err(e) = self.fb.reboot_to(target.as_str()).await {
@@ -359,14 +413,16 @@ impl FlashExecutor {
     /// Fastbootd is required for snapshot-update commands, logical partition
     /// access (`partition-type:` / `partition-size:` queries), and proper
     /// crypto footer handling.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the device cannot transition to fastbootd.
     pub async fn ensure_fastbootd(mut self) -> Result<Self> {
-        #[allow(clippy::map_unwrap_or)]
         let is_fastbootd = self
             .fb
             .get_var("is-userspace")
             .await
-            .map(|v| v == "yes")
-            .unwrap_or(false);
+            .is_ok_and(|v| v == "yes");
         if is_fastbootd {
             debug!("already in fastbootd mode");
             return Ok(self);
@@ -379,10 +435,13 @@ impl FlashExecutor {
     /// This disables dm-verity and AVB verification (flags=3).
     /// Returns the device response from the last flash.
     ///
+    /// # Errors
+    ///
+    /// Returns an error if the download or flash command fails.
+    ///
     /// # Panics
     ///
     /// Panics if `EMPTY_VBMETA` exceeds 4 GiB (impossible for a 512-byte image).
-    #[allow(clippy::missing_panics_doc)]
     pub async fn flash_empty_vbmeta(&mut self) -> Result<String> {
         let data = crate::flash::vbmeta::EMPTY_VBMETA;
         debug!("flashing empty vbmeta to both slots");
@@ -403,6 +462,11 @@ impl FlashExecutor {
 
     /// Flash a raw image to a partition. Public entry point for `flash-raw`.
     /// Returns the device response message.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the image file cannot be read, the device cannot
+    /// accept the data, or the flash command fails.
     pub async fn flash_raw_image(
         &mut self,
         partition: &str,
