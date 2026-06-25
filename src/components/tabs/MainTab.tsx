@@ -107,7 +107,7 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
             <h2 className="text-body font-semibold text-foreground">
               Force Fastboot
             </h2>
-            <p className="mt-1 text-label text-muted-foreground leading-relaxed max-w-md">
+            <p className="mt-1 text-label text-muted-foreground leading-relaxed max-w-lg">
               Force a MediaTek device into fastboot mode via preloader serial handshake.
             </p>
             <div className="mt-3 flex items-center gap-3">
@@ -150,7 +150,7 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
       </section>
 
       {/* Bootloader controls */}
-      <section className="panel-shell flex items-center justify-between gap-4 px-5 py-3">
+      <section className="panel-shell flex items-center justify-between gap-4 px-5 py-3 max-sm:flex-wrap">
         <div className="flex items-center gap-3 min-w-0">
           <Lock size={14} className="shrink-0 text-muted-foreground" />
           <span className="text-body font-medium text-foreground/90">Bootloader</span>

@@ -1,6 +1,6 @@
 export default function SettingsTab() {
   return (
-    <div className="max-w-sm space-y-3">
+    <div className="max-w-sm max-sm:max-w-full space-y-3">
       <div className="panel-shell px-5 py-4 space-y-2">
         <InfoRow label="Name" value="pawflash" />
         <InfoRow label="Version" value="0.1.0" />

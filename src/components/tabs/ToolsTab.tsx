@@ -159,7 +159,7 @@ export default function ToolsTab() {
                 Select
               </Button>
               {scatterPath && (
-                <span className="text-caption font-mono text-muted-foreground truncate max-w-[20rem]">
+                <span className="text-caption font-mono text-muted-foreground truncate max-w-[20rem] max-sm:max-w-full">
                   {scatterPath}
                 </span>
               )}
@@ -171,7 +171,7 @@ export default function ToolsTab() {
 
             {scatterMeta && (
               <div className="mt-3 space-y-3">
-                <div className="grid grid-cols-3 gap-x-4 gap-y-1.5 text-label">
+                <div className="grid grid-cols-3 max-sm:grid-cols-2 gap-x-4 gap-y-1.5 text-label">
                   <div>
                     <span className="text-muted-foreground">Platform</span>
                     <p className="font-medium">{scatterMeta.platform ?? "—"}</p>
@@ -216,7 +216,7 @@ export default function ToolsTab() {
           <div className="min-w-0">
             <p className="text-body font-medium text-foreground/90">GSI Flash</p>
             {gsiPath && (
-              <p className="text-caption font-mono text-muted-foreground truncate max-w-[14rem]">
+              <p className="text-caption font-mono text-muted-foreground truncate max-w-[14rem] max-sm:max-w-full">
                 {gsiPath}
               </p>
             )}
@@ -239,7 +239,7 @@ export default function ToolsTab() {
       </section>
 
       {/* Format Data + Disable AVB */}
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 max-sm:grid-cols-1 gap-3">
         <section className="panel-shell flex items-center justify-between gap-3 px-5 py-3">
           <div className="flex items-center gap-3 min-w-0">
             <HardDrive size={14} className="shrink-0 text-muted-foreground" />

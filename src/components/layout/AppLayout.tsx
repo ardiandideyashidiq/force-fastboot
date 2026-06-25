@@ -176,7 +176,7 @@ export default function AppLayout({
       </aside>
 
       {/* Main */}
-      <main ref={mainRef} className="overflow-y-auto p-5">
+      <main ref={mainRef} className="overflow-y-auto p-5 max-sm:p-3">
         {children({ tab })}
       </main>
     </div>
