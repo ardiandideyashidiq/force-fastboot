@@ -86,10 +86,12 @@ pub async fn run(scatter_path: &Path, exclude: &[String], clean: bool, no_format
     let options = sp::FlashPlanOptions {
         mode: sp::Mode::DirtyFlash,
         storage: sp::StorageSelect::Auto,
-        check_images: true,
-        image_search: true,
+        image_verification: sp::ImageVerification {
+            check_images: true,
+            image_search: true,
+        },
         exclude: exclude.to_vec(),
-        clean: clean || clean_test,
+        clean: if clean || clean_test { sp::CleanMode::Yes } else { sp::CleanMode::No },
         package_root: Some(scatter_path.parent()
             .unwrap_or_else(|| std::path::Path::new("."))
             .to_path_buf()),

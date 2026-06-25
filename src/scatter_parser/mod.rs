@@ -36,7 +36,7 @@ pub use path::resolve_image_path;
 pub use plan::build_flash_plan;
 pub use safety::{canonical_name, safety_class, role_for_name};
 pub use types::{
-    FlashAction, FlashPlan, FlashPlanOptions, FlashPlanSummary,
-    Mode, ResolvedPath, ScatterFile, ScatterPartition, SkippedPartition,
-    StorageSelect,
+    Allowance, CleanMode, FlashAction, FlashPlan, FlashPlanOptions,
+    FlashPlanSummary, ImageVerification, Mode, ResolvedPath, ScatterFile,
+    ScatterPartition, SkippedPartition, StorageSelect,
 };

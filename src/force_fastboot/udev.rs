@@ -21,7 +21,7 @@ pub const fn udev_rules_content() -> &'static str {
 // ── Linux implementation ─────────────────────────────────────────
 #[cfg(target_os = "linux")]
 mod platform {
-    use super::*;
+    use super::{warn, RULE_PATH, MEDIATEK_UDEV_RULES, Command};
 
     /// Install udev rules via `sudo tee`. Returns `true` if rules were
     /// written (or already up-to-date).
@@ -68,10 +68,7 @@ mod platform {
     /// Add the current user to dialout (and optionally plugdev) group.
     /// Returns `true` if any group was updated.
     pub fn add_user_to_group() -> bool {
-        let user = match std::env::var("USER") {
-            Ok(u) => u,
-            Err(_) => return false,
-        };
+        let Ok(user) = std::env::var("USER") else { return false };
 
         for group in &["dialout", "plugdev"] {
             let already_in = Command::new("id")

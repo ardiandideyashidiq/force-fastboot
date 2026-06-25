@@ -8,6 +8,15 @@ use crate::flash::results::{FormatDataResult, FormatOutcome, FormatStatus};
 use crate::flash::sparse::CRYPT_FOOTER_OFFSET;
 use crate::format::generator::{self, FsType};
 
+struct WiperConfig<'a> {
+    fs_options: u32,
+    max_download: u32,
+    erase_blk: u32,
+    logical_blk: u32,
+    tools_dir: &'a Path,
+    clean_test: bool,
+}
+
 impl FlashExecutor {
     /// Erase and format userdata, metadata, and cache.
     ///
@@ -107,15 +116,19 @@ impl FlashExecutor {
                 _ => 0,
             };
 
+            let wc = WiperConfig {
+                fs_options,
+                max_download,
+                erase_blk,
+                logical_blk,
+                tools_dir: &tools_dir,
+                clean_test,
+            };
+
             let outcome = self
                 .wipe_partition(
+                    &wc,
                     partition,
-                    fs_options,
-                    max_download,
-                    erase_blk,
-                    logical_blk,
-                    &tools_dir,
-                    clean_test,
                     footer_size,
                     fs_type_override,
                 )
@@ -247,13 +260,8 @@ impl FlashExecutor {
     /// Erase, generate empty filesystem, download, and flash a single partition.
     async fn wipe_partition(
         &mut self,
+        wc: &WiperConfig<'_>,
         partition: &str,
-        fs_options: u32,
-        max_download: u32,
-        erase_blk: u32,
-        logical_blk: u32,
-        tools_dir: &Path,
-        clean_test: bool,
         footer_size: u64,
         fs_type_override: Option<FsType>,
     ) -> FormatOutcome {
@@ -276,7 +284,7 @@ impl FlashExecutor {
             Err(outcome) => return outcome,
         };
 
-        if clean_test {
+        if wc.clean_test {
             return FormatOutcome {
                 partition: partition.into(),
                 status: FormatStatus::ErasedOnly(partition_type),
@@ -290,15 +298,15 @@ impl FlashExecutor {
 
         let fs_size = part_size.saturating_sub(footer_size);
         debug!(%partition, %partition_type, part_size, fs_size, footer_size, "generating empty filesystem");
-        let output_path = tools_dir.join("format.img");
+        let output_path = wc.tools_dir.join("format.img");
         if let Err(e) = generator::generate_empty_fs(
-            tools_dir,
+            wc.tools_dir,
             &output_path,
             fs_type,
             fs_size,
-            erase_blk,
-            logical_blk,
-            fs_options,
+            wc.erase_blk,
+            wc.logical_blk,
+            wc.fs_options,
         )
         .await
         {
@@ -315,7 +323,7 @@ impl FlashExecutor {
             partition,
             &output_path,
             part_size,
-            max_download,
+            wc.max_download,
             footer_size,
         )
         .await;

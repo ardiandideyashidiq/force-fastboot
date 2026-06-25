@@ -26,7 +26,7 @@ mod tests {
 
     #[test]
     fn permission_denied_via_message() {
-        let err = std::io::Error::new(std::io::ErrorKind::Other, "Permission denied");
+        let err = std::io::Error::other("Permission denied");
         assert!(is_permission_error(&err));
     }
 
@@ -38,7 +38,7 @@ mod tests {
 
     #[test]
     fn empty_message() {
-        let err = std::io::Error::new(std::io::ErrorKind::Other, "");
+        let err = std::io::Error::other("");
         assert!(!is_permission_error(&err));
     }
 }

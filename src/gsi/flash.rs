@@ -238,6 +238,11 @@ fn check_cancelled(cancel_token: Option<&Arc<AtomicBool>>) -> Result<()> {
 ///
 /// Returns an error if image validation, mode transitions, partition
 /// resolution, vbmeta flash, userdata wipe, or GSI flash fails.
+///
+/// # Panics
+///
+/// Panics if the `usize::try_from` conversion of flash/wipe/skipped
+/// counters exceeds the target platform's `usize` range.
 pub async fn execute_gsi_flash(
     mut executor: FlashExecutor,
     image: &Path,

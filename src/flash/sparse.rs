@@ -402,6 +402,125 @@ pub(crate) async fn sparse_wrap_file(
 /// The region from `effective_size` to `part_size` is always emitted as a
 /// DONTCARE chunk (bootloader writes zeros), matching TWRP's crypto-footer
 /// wipe behaviour.
+#[cfg(unix)]
+fn do_scan_impl(
+    file: &std::fs::File,
+    effective_size: u64,
+    blk: u64,
+) -> Result<Vec<(u64, u64, bool)>> {
+    use std::os::unix::io::AsRawFd;
+    let fd = file.as_raw_fd();
+    let mut extents: Vec<(u64, u64, bool)> = Vec::new();
+    let mut offset: u64 = 0;
+
+    loop {
+        if offset >= effective_size {
+            break;
+        }
+        let seek_offset = i64::try_from(offset)
+            .map_err(|_| FlashError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("seek offset {offset:#x} exceeds i64 range"),
+            )))?;
+        let data_start = match unsafe { libc::lseek(fd, seek_offset, libc::SEEK_DATA) } {
+            -1 => {
+                let err = std::io::Error::last_os_error();
+                if err.raw_os_error() == Some(libc::ENXIO) {
+                    if offset < effective_size {
+                        extents.push((offset, effective_size - offset, false));
+                    }
+                    break;
+                }
+                return Err(FlashError::Io(std::io::Error::other(
+                    format!("SEEK_DATA at {offset:#x}: {err}"),
+                )));
+            }
+            pos => u64::try_from(pos)
+                .map_err(|_| FlashError::Io(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("SEEK_DATA returned position {pos} that exceeds u64 range"),
+                )))?,
+        };
+        let aligned = (data_start / blk) * blk;
+        if aligned > offset {
+            extents.push((offset, aligned - offset, false));
+        }
+        let hole_seek = i64::try_from(aligned)
+            .map_err(|_| FlashError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("hole seek offset {aligned:#x} exceeds i64 range"),
+            )))?;
+        let hole_start =
+            match unsafe { libc::lseek(fd, hole_seek, libc::SEEK_HOLE) } {
+                -1 => {
+                    let err = std::io::Error::last_os_error();
+                    if err.raw_os_error() == Some(libc::ENXIO) {
+                        effective_size
+                    } else {
+                return Err(FlashError::Io(std::io::Error::other(
+                    format!("SEEK_HOLE at {aligned:#x}: {err}"),
+                )));
+                    }
+                }
+                pos => u64::try_from(pos)
+                    .map_err(|_| FlashError::Io(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        format!("SEEK_HOLE returned position {pos} that exceeds u64 range"),
+                    )))?,
+            };
+        let data_end = hole_start.min(effective_size);
+        let len = data_end.saturating_sub(aligned);
+        if len > 0 {
+            extents.push((aligned, len, true));
+        }
+        offset = data_end;
+    }
+    Ok(extents)
+}
+
+#[cfg(not(unix))]
+fn do_scan_impl(
+    file: &std::fs::File,
+    effective_size: u64,
+    blk: u64,
+) -> Result<Vec<(u64, u64, bool)>> {
+    use std::io::{BufReader, Read};
+    let mut reader = BufReader::with_capacity(1024 * 1024, file);
+    let mut extents: Vec<(u64, u64, bool)> = Vec::new();
+    let mut block_buf = vec![0u8; blk as usize];
+    let scan_blocks = effective_size / blk;
+    let mut run_start: u64 = 0;
+    let mut run_is_data = false;
+    let mut current_block: u64 = 0;
+
+    while current_block < scan_blocks {
+        reader.read_exact(&mut block_buf).map_err(|_| {
+            FlashError::SparseTruncated {
+                read: (current_block as usize) * blk as usize,
+                expected: scan_blocks as usize,
+            }
+        })?;
+        let is_data = !block_buf.iter().all(|&b| b == 0);
+        if current_block == 0 {
+            run_is_data = is_data;
+        }
+        if is_data != run_is_data {
+            let len = (current_block - run_start) * blk;
+            if len > 0 {
+                extents.push((run_start * blk, len, run_is_data));
+            }
+            run_start = current_block;
+            run_is_data = is_data;
+        }
+        current_block += 1;
+    }
+    let len = (current_block - run_start) * blk;
+    if len > 0 {
+        extents.push((run_start * blk, len, run_is_data));
+    }
+    Ok(extents)
+}
+
 fn scan_extents(
     path: &Path,
     scan_size: u64,
@@ -409,131 +528,10 @@ fn scan_extents(
     part_size: u64,
     blk: u64,
 ) -> Result<Vec<SplitChunk>> {
-    // On unix use SEEK_DATA/SEEK_HOLE extent iteration; on other platforms
-    // fall back to block-by-block reads.
-    #[cfg(unix)]
-    fn do_scan(
-        file: &std::fs::File,
-        effective_size: u64,
-        blk: u64,
-    ) -> Result<Vec<(u64, u64, bool)>> {
-        use std::os::unix::io::AsRawFd;
-        let fd = file.as_raw_fd();
-        let mut extents: Vec<(u64, u64, bool)> = Vec::new();
-        let mut offset: u64 = 0;
-
-        loop {
-            if offset >= effective_size {
-                break;
-            }
-            let seek_offset = i64::try_from(offset)
-                .map_err(|_| FlashError::Io(std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    format!("seek offset {offset:#x} exceeds i64 range"),
-                )))?;
-            let data_start = match unsafe { libc::lseek(fd, seek_offset, libc::SEEK_DATA) } {
-                -1 => {
-                    let err = std::io::Error::last_os_error();
-                    if err.raw_os_error() == Some(libc::ENXIO) {
-                        if offset < effective_size {
-                            extents.push((offset, effective_size - offset, false));
-                        }
-                        break;
-                    }
-                    return Err(FlashError::Io(std::io::Error::other(
-                        format!("SEEK_DATA at {offset:#x}: {err}"),
-                    )));
-                }
-                pos => u64::try_from(pos)
-                    .map_err(|_| FlashError::Io(std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        format!("SEEK_DATA returned position {pos} that exceeds u64 range"),
-                    )))?,
-            };
-            let aligned = (data_start / blk) * blk;
-            if aligned > offset {
-                extents.push((offset, aligned - offset, false));
-            }
-            let hole_seek = i64::try_from(aligned)
-                .map_err(|_| FlashError::Io(std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    format!("hole seek offset {aligned:#x} exceeds i64 range"),
-                )))?;
-            let hole_start =
-                match unsafe { libc::lseek(fd, hole_seek, libc::SEEK_HOLE) } {
-                    -1 => {
-                        let err = std::io::Error::last_os_error();
-                        if err.raw_os_error() == Some(libc::ENXIO) {
-                            effective_size
-                        } else {
-                    return Err(FlashError::Io(std::io::Error::other(
-                        format!("SEEK_HOLE at {aligned:#x}: {err}"),
-                    )));
-                        }
-                    }
-                    pos => u64::try_from(pos)
-                        .map_err(|_| FlashError::Io(std::io::Error::new(
-                            std::io::ErrorKind::InvalidData,
-                            format!("SEEK_HOLE returned position {pos} that exceeds u64 range"),
-                        )))?,
-                };
-            let data_end = hole_start.min(effective_size);
-            let len = data_end.saturating_sub(aligned);
-            if len > 0 {
-                extents.push((aligned, len, true));
-            }
-            offset = data_end;
-        }
-        Ok(extents)
-    }
-
-    #[cfg(not(unix))]
-    fn do_scan(
-        file: &std::fs::File,
-        effective_size: u64,
-        blk: u64,
-    ) -> Result<Vec<(u64, u64, bool)>> {
-        use std::io::{BufReader, Read};
-        let mut reader = BufReader::with_capacity(1024 * 1024, file);
-        let mut extents: Vec<(u64, u64, bool)> = Vec::new();
-        let mut block_buf = vec![0u8; blk as usize];
-        let scan_blocks = effective_size / blk;
-        let mut run_start: u64 = 0;
-        let mut run_is_data = false;
-        let mut current_block: u64 = 0;
-
-        while current_block < scan_blocks {
-            reader.read_exact(&mut block_buf).map_err(|_| {
-                FlashError::SparseTruncated {
-                    read: (current_block as usize) * blk as usize,
-                    expected: scan_blocks as usize,
-                }
-            })?;
-            let is_data = !block_buf.iter().all(|&b| b == 0);
-            if current_block == 0 {
-                run_is_data = is_data;
-            }
-            if is_data != run_is_data {
-                let len = (current_block - run_start) * blk;
-                if len > 0 {
-                    extents.push((run_start * blk, len, run_is_data));
-                }
-                run_start = current_block;
-                run_is_data = is_data;
-            }
-            current_block += 1;
-        }
-        let len = (current_block - run_start) * blk;
-        if len > 0 {
-            extents.push((run_start * blk, len, run_is_data));
-        }
-        Ok(extents)
-    }
-
     let file = std::fs::File::open(path)
         .map_err(|e| FlashError::Io(std::io::Error::new(e.kind(), format!("scan open: {e}"))))?;
 
-    let extents = do_scan(&file, scan_size.min(effective_size), blk)?;
+    let extents = do_scan_impl(&file, scan_size.min(effective_size), blk)?;
 
     build_split_chunks(&extents, effective_size, part_size, blk)
 }

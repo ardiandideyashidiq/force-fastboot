@@ -65,7 +65,7 @@ pub fn resolve_image_path(
                     }
                     return resolved_path_result(ResolvedPathParts {
                         original: meta.original,
-                        normalized: &meta.normalized,
+                        normalized: meta.normalized,
                         resolved_path: Some(found),
                         resolved_via: Some("image_search_unique_basename"),
                         exists: Some(true),
@@ -88,7 +88,7 @@ pub fn resolve_image_path(
     if let Some((via, candidate, outside)) = first_allowed {
         return resolved_path_result(ResolvedPathParts {
             original: meta.original,
-            normalized: &meta.normalized,
+            normalized: meta.normalized,
             resolved_path: Some(candidate),
             resolved_via: Some(via),
             exists: Some(false),
@@ -101,7 +101,7 @@ pub fn resolve_image_path(
     }
     resolved_path_result(ResolvedPathParts {
         original: meta.original,
-        normalized: &meta.normalized,
+        normalized: meta.normalized,
         resolved_path: None,
         resolved_via: None,
         exists: Some(false),
@@ -176,7 +176,7 @@ fn check_existing_candidates(
         if candidate.exists() {
             return Some(resolved_path_result(ResolvedPathParts {
                 original: meta.original,
-                normalized: &meta.normalized,
+                normalized: meta.normalized,
                 resolved_path: Some(candidate),
                 resolved_via: Some(via),
                 exists: Some(true),

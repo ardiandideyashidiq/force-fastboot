@@ -188,6 +188,34 @@ impl ScatterFile {
     }
 }
 
+/// Whether to include userdata in the flash plan via --clean.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CleanMode {
+    /// Do not include userdata in the flash plan.
+    #[default]
+    No,
+    /// Include userdata in the flash plan (erase and format).
+    Yes,
+}
+
+/// Image verification options.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ImageVerification {
+    /// Whether to verify image file existence and size.
+    pub check_images: bool,
+    /// Whether to search for images by basename.
+    pub image_search: bool,
+}
+
+/// Flash allowance options.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Allowance {
+    /// Whether to include preloader in dirty-flash mode.
+    pub include_preloader: bool,
+    /// Whether to allow incomplete slot pairs.
+    pub allow_incomplete_slots: bool,
+}
+
 /// Flash plan options.
 #[derive(Debug, Clone, Default)]
 pub struct FlashPlanOptions {
@@ -205,16 +233,12 @@ pub struct FlashPlanOptions {
     pub firmware_dir: Option<std::path::PathBuf>,
     /// Package root directory for resolving image paths.
     pub package_root: Option<std::path::PathBuf>,
-    /// Whether to verify image file existence and size.
-    pub check_images: bool,
-    /// Whether to search for images by basename.
-    pub image_search: bool,
-    /// Whether to include preloader in dirty-flash mode.
-    pub include_preloader: bool,
-    /// Whether to allow incomplete slot pairs.
-    pub allow_incomplete_slots: bool,
+    /// Image verification settings.
+    pub image_verification: ImageVerification,
+    /// Flash allowance settings.
+    pub allowance: Allowance,
     /// Include userdata in the flash plan.
-    pub clean: bool,
+    pub clean: CleanMode,
 }
 
 /// Flash plan summary counts.
