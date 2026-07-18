@@ -1,22 +1,10 @@
 use owo_colors::OwoColorize;
+use strip_ansi_escapes;
 
 use crate::output::{self, spinner};
 
 fn strip(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    let mut in_escape = false;
-    for b in s.bytes() {
-        if in_escape {
-            if b == b'm' || b.is_ascii_alphabetic() {
-                in_escape = false;
-            }
-        } else if b == b'\x1b' {
-            in_escape = true;
-        } else {
-            out.push(b as char);
-        }
-    }
-    out
+    String::from_utf8(strip_ansi_escapes::strip(s)).unwrap_or_else(|_| s.to_string())
 }
 
 #[must_use]
