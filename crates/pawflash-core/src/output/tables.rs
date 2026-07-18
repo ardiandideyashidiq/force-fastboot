@@ -219,7 +219,8 @@ pub fn plan_skipped(plan: &FlashPlan) -> Option<String> {
 // ── Device info ──────────────────────────────────────────────────────
 
 #[must_use]
-#[allow(clippy::implicit_hasher)]
+// HashMap<K,V> required by tabled derive — workaround until tabled supports hasher param
+#[expect(clippy::implicit_hasher)]
 pub fn device_info(vars: &HashMap<String, String>) -> String {
     let rows: Vec<MetaRow> = vars
         .iter()
