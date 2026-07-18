@@ -1,6 +1,4 @@
 use serde::Serialize;
-use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
 
 /// Fastboot mode: bootloader (fastboot) or userspace fastbootd.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,22 +70,6 @@ pub enum GsiEvent {
         partition: String,
         reason: String,
     },
-}
-
-/// Options for the GSI flash workflow.
-#[derive(Debug, Clone)]
-pub struct GsiFlashOptions {
-    pub wipe_data: bool,
-    pub cancel_token: Option<Arc<AtomicBool>>,
-}
-
-impl Default for GsiFlashOptions {
-    fn default() -> Self {
-        Self {
-            wipe_data: true,
-            cancel_token: None,
-        }
-    }
 }
 
 /// Summary statistics from a completed GSI flash.

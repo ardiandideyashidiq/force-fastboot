@@ -218,23 +218,10 @@
     @apply rounded-md border border-border/80 bg-card/96;
   }
 
-  .panel-shell-accent {
-    @apply rounded-md border border-trace-copper/15 bg-card/96;
-  }
-
   .dot-waiting {
     background-color: var(--info);
   }
-  .dot-flashing {
-    background-color: var(--ring);
-  }
   .dot-complete {
     background-color: var(--success);
-  }
-  .dot-error {
-    background-color: var(--error);
-  }
-  .dot-cancelled {
-    background-color: var(--warning);
   }
 }

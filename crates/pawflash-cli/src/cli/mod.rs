@@ -12,6 +12,7 @@ pub mod format_data;
 pub mod disable_vbmeta;
 /// GSI flash CLI handler.
 pub mod gsi;
+pub mod gsi_progress;
 /// Interactive flash prompt flow.
 pub mod interactive;
 

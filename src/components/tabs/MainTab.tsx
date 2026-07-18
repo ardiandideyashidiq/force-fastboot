@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useConsole } from "@/hooks/useConsole";
-import type { DeviceInfo } from "@/types/api";
+import type { DeviceInfo, ConfirmAction } from "@/types/api";
 import type { ProgressEvent } from "@/types/progress";
 import {
   Zap,
@@ -17,14 +17,6 @@ import {
   Copy,
   LoaderCircle,
 } from "lucide-react";
-
-interface ConfirmAction {
-  title: string;
-  description: string;
-  confirmLabel?: string;
-  variant?: "destructive" | "default";
-  onConfirm: () => void;
-}
 
 interface MainTabProps {
   device: DeviceInfo | null;

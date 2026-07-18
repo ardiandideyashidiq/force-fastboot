@@ -2,7 +2,7 @@ use super::error::Error;
 use super::error::Result;
 use super::fastboot::in_fastboot_mode;
 use super::{permissions, udev};
-use crate::output::prompts;
+use inquire::Confirm;
 use std::collections::HashSet;
 use tokio::time::{sleep, Duration};
 use tracing::{debug, info, trace, warn};
@@ -83,10 +83,10 @@ pub fn open_with_permission_recovery(port: &str) -> Result<tokio_serial::SerialS
     warn!(%port, "permission denied — attempting recovery");
 
     // Prompt before installing udev rules (default no — opt-in).
-    if prompts::confirm_no(
-        "Permission denied. Install udev rules for MediaTek preloader? (requires sudo)",
-    )
-    .unwrap_or(false)
+    if Confirm::new("Permission denied. Install udev rules for MediaTek preloader? (requires sudo)")
+        .with_default(false)
+        .prompt()
+        .unwrap_or(false)
         && udev::install_udev_rules()
     {
         if let Ok(stream) = open_serial(port) {
@@ -96,10 +96,10 @@ pub fn open_with_permission_recovery(port: &str) -> Result<tokio_serial::SerialS
     }
 
     // Prompt before adding user to dialout group (default no — opt-in).
-    if prompts::confirm_no(
-        "Add current user to dialout/plugdev groups? (requires sudo, log out/in to take effect)",
-    )
-    .unwrap_or(false)
+    if Confirm::new("Add current user to dialout/plugdev groups? (requires sudo, log out/in to take effect)")
+        .with_default(false)
+        .prompt()
+        .unwrap_or(false)
         && udev::add_user_to_group()
     {
         if let Ok(stream) = open_serial(port) {

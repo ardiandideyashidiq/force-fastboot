@@ -1,11 +1,11 @@
 use std::path::Path;
 
 use anyhow::{Context, Result};
+use inquire::{Confirm, Select};
 use tracing::info;
 
 use pawflash_core::flash::executor::{BootTarget, FlashExecutor};
 use pawflash_core::output;
-use pawflash_core::output::prompts;
 use pawflash_core::scatter_parser as sp;
 
 fn show_plan(_parsed: &sp::ScatterFile, plan: &sp::FlashPlan) -> Result<bool> {
@@ -34,7 +34,7 @@ fn show_plan(_parsed: &sp::ScatterFile, plan: &sp::FlashPlan) -> Result<bool> {
         output::status::stderr(output::tables::plan_errors(plan).unwrap_or_default());
     }
 
-    if has_errors && !prompts::confirm_yes("Ignore errors and proceed anyway?")? {
+    if has_errors && !Confirm::new("Ignore errors and proceed anyway?").with_default(true).prompt()? {
         output::status::dim("  Aborted.");
         return Ok(false);
     }
@@ -101,7 +101,7 @@ pub async fn run(scatter_path: &Path, exclude: &[String], clean: bool, no_format
 
     let do_format = !no_format
         && (clean || clean_test)
-        && prompts::confirm_yes("Format data partitions (userdata, cache, metadata)?")?;
+        && Confirm::new("Format data partitions (userdata, cache, metadata)?").with_default(true).prompt()?;
 
     if !show_plan(&parsed, &plan)? {
         return Ok(());
@@ -110,7 +110,7 @@ pub async fn run(scatter_path: &Path, exclude: &[String], clean: bool, no_format
         output::status::dim("  Nothing to flash.");
         return Ok(());
     }
-    if !prompts::confirm_no("Proceed with flash?")? {
+    if !Confirm::new("Proceed with flash?").with_default(false).prompt()? {
         output::status::dim("  Aborted.");
         return Ok(());
     }
@@ -143,10 +143,7 @@ pub async fn run(scatter_path: &Path, exclude: &[String], clean: bool, no_format
         return Ok(());
     }
 
-    let reboot_target = prompts::select(
-        "Reboot to:",
-        vec!["none (skip)", "system", "recovery", "bootloader", "fastbootd"],
-    )?;
+    let reboot_target = Select::new("Reboot to:", vec!["none (skip)", "system", "recovery", "bootloader", "fastbootd"]).prompt()?;
 
     do_reboot(&mut executor, reboot_target).await
 }

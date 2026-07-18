@@ -1,7 +1,6 @@
 //! MediaTek scatter file parsing (XML and YAML formats).
 
 mod helpers;
-mod json;
 mod xml;
 mod yaml;
 
@@ -25,7 +24,6 @@ use crate::scatter_parser::util::{region_family, storage_family};
 // --- Re-exports ---
 
 pub use helpers::{human_size, parse_int};
-pub use json::partition_to_json;
 pub(crate) use helpers::{find_general_value, scalar_json, value_to_string};
 
 /// Parse a `MediaTek` scatter file (auto-detects XML vs YAML).

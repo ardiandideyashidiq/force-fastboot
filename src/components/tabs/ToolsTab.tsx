@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectTrigger, SelectContent, SelectItem } from "@/components/ui/select";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useConsole } from "@/hooks/useConsole";
-import type { ScatterFile } from "@/types/api";
+import type { ScatterFile, ConfirmAction } from "@/types/api";
 import type { ProgressEvent } from "@/types/progress";
 import {
   FileText,
@@ -17,13 +17,6 @@ import {
   Gauge,
   LoaderCircle,
 } from "lucide-react";
-
-interface ConfirmAction {
-  title: string;
-  description: string;
-  confirmLabel?: string;
-  onConfirm: () => void;
-}
 
 export default function ToolsTab() {
   const { addProgressEvent } = useConsole();

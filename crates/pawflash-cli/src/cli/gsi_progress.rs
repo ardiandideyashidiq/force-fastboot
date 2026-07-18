@@ -1,7 +1,7 @@
 use indicatif::ProgressBar;
 
-use crate::gsi::types::GsiEvent;
-use crate::output::{self, spinner};
+use pawflash_core::gsi::GsiEvent;
+use pawflash_core::output::{self, spinner};
 
 /// Tracks GSI workflow progress via a `MultiProgress` when not verbose.
 /// When verbose, delegates to `tracing::info!` instead.

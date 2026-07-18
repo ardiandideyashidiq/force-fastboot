@@ -27,7 +27,7 @@ pub async fn run(image: &Path, clean_test: bool) -> Result<()> {
 
     info!(image = %image.display(), "starting GSI flash");
 
-    let mut gsi_progress = output::gsi_progress::GsiProgress::default();
+    let mut gsi_progress = crate::cli::gsi_progress::GsiProgress::default();
     let report = |event: GsiEvent| gsi_progress.report(&event);
 
     let outcome = pawflash_core::gsi::execute_gsi_flash(executor, &image, clean_test, None, report).await?;

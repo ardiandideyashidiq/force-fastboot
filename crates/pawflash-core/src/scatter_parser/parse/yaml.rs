@@ -7,7 +7,6 @@ pub(crate) fn parse_yaml_scatter(text: &str) -> ParsedRawScatter {
 
     let mut general = Map::new();
     let mut layouts: BTreeMap<String, Vec<Map<String, Value>>> = BTreeMap::new();
-    let mut warnings = Vec::new();
 
     for rec in records {
         if rec.contains_key("storage_type") && rec.contains_key("description") {
@@ -60,15 +59,9 @@ pub(crate) fn parse_yaml_scatter(text: &str) -> ParsedRawScatter {
         }
     }
 
-    if layouts.is_empty() && !general.is_empty() {
-        warnings.push("no partition entries found in YAML-style scatter".to_string());
-    }
-
     let general_value = Value::Object(general);
     let platform = find_general_value(&general_value, "platform");
     let project = find_general_value(&general_value, "project");
-
-    drop(warnings);
 
     ParsedRawScatter {
         general: general_value,

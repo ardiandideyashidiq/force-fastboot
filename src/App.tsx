@@ -28,13 +28,6 @@ function App() {
   const [device, setDevice] = useState<DeviceInfo | null>(null);
   const [deviceLoading, setDeviceLoading] = useState(false);
 
-  const onThemeChange = useCallback(
-    (value: Theme | ((current: Theme) => Theme)) => {
-      setTheme(value);
-    },
-    [],
-  );
-
   const fetchDevice = useCallback(async () => {
     setDeviceLoading(true);
     try {
@@ -79,7 +72,7 @@ function App() {
     <ConsoleProvider>
       <AppLayout
         theme={theme}
-        onThemeChange={onThemeChange}
+        onThemeChange={setTheme}
         sidebarActions={({ sidebarOpen }) => (
           <div className="space-y-3">
             {/* Reboot dropdown */}

@@ -1,4 +1,3 @@
-pub mod diagnostics;
 pub mod error;
 pub mod executor;
 pub mod format;
