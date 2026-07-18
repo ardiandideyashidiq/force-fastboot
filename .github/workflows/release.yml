@@ -31,57 +31,23 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: Install system deps (Linux)
+      - name: Install deps (Linux)
         if: matrix.os == 'ubuntu-latest'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libudev-dev \
-            libwebkit2gtk-4.1-dev \
-            libgtk-3-dev \
-            libglib2.0-dev \
-            libxdo-dev \
-            libssl-dev \
-            librsvg2-dev
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev
 
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
+      - run: cargo build --release --target ${{ matrix.target }} -p pawflash-cli
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: 'pnpm'
-
-      - run: pnpm install --frozen-lockfile
-
-      - run: pnpm build
-
-      - run: cargo clippy --all-targets --all-features -- -D warnings
-
-      - run: cargo test
-
-      - run: cargo build --release --target ${{ matrix.target }} -p pawflash-cli -p pawflash-tauri
-
-      - name: Stage CLI
+      - name: Stage binary
         run: cp target/${{ matrix.target }}/release/pawflash-cli${{ matrix.os == 'windows-latest' && '.exe' || '' }} pawflash-${{ matrix.os == 'ubuntu-latest' && 'linux' || 'windows.exe' }}
-
-      - name: Stage GUI
-        run: cp target/${{ matrix.target }}/release/pawflash-tauri${{ matrix.os == 'windows-latest' && '.exe' || '' }} pawflash-gui-${{ matrix.os == 'ubuntu-latest' && 'linux' || 'windows.exe' }}
 
       - uses: actions/upload-artifact@v4
         with:
           name: pawflash-${{ matrix.os == 'ubuntu-latest' && 'linux' || 'windows.exe' }}
           path: pawflash-${{ matrix.os == 'ubuntu-latest' && 'linux' || 'windows.exe' }}
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: pawflash-gui-${{ matrix.os == 'ubuntu-latest' && 'linux' || 'windows.exe' }}
-          path: pawflash-gui-${{ matrix.os == 'ubuntu-latest' && 'linux' || 'windows.exe' }}
 
   release:
     needs: [build]
@@ -113,6 +79,4 @@ jobs:
           files: |
             pawflash-linux/pawflash-linux
             pawflash-windows.exe/pawflash-windows.exe
-            pawflash-gui-linux/pawflash-gui-linux
-            pawflash-gui-windows.exe/pawflash-gui-windows.exe
           fail_on_unmatched_files: true

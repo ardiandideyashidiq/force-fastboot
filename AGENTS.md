@@ -92,11 +92,14 @@ The Rust `ProgressEvent` enum uses `#[serde(tag = "event", content = "data")]`, 
 
 ## CI & release
 
-- Push to `main` → `.github/workflows/release.yml` (check + build + release).
-- Linux: `x86_64-unknown-linux-gnu`, Windows: `x86_64-pc-windows-msvc`.
-- Timestamped release tag `release-YYYYMMDD-HHMMSS`, changelog from git log.
-- CLI binary: `pawflash-linux` / `pawflash-windows.exe`
-- GUI binary: `pawflash-gui-linux` / `pawflash-gui-windows.exe`.
+Two workflows:
+
+- **`release.yml`** — CLI only, every push to `main`. Fast (~2 min). Builds `pawflash-cli` for linux + windows, creates timestamped release.
+- **`release-gui.yml`** — GUI only, triggers on changes to `src/**`, `src-tauri/**`, `package.json`, or `pnpm-lock.yaml`. Also supports `workflow_dispatch`. Uses `tauri-apps/tauri-action@v1`.
+
+Linux: `x86_64-unknown-linux-gnu`, Windows: `x86_64-pc-windows-msvc`.
+Release tag format: `release-YYYYMMDD-HHMMSS`.
+Linux build dep: `libudev-dev` (CLI) or `libwebkit2gtk-4.1-dev` + `patchelf` (GUI).
 - Linux build dep: `libudev-dev` (for nusb USB enumeration).
 
 ## Vendored deps
