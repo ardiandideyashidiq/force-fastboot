@@ -4,6 +4,11 @@ version = "0.1.0"
 description = "pawflash desktop GUI"
 authors = ["you"]
 edition = "2021"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/user/pawflash"
+readme = "../README.md"
+keywords = ["fastboot", "mediatek", "tauri"]
+categories = ["hardware-support", "development-tools"]
 
 [lib]
 name = "pawflash_tauri_lib"

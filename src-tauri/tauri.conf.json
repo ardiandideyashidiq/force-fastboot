@@ -15,7 +15,8 @@
                 "label": "main",
                 "title": "pawflash",
                 "width": 1024,
-                "height": 768
+                "height": 768,
+                "maximized": true
             }
         ],
         "security": {
