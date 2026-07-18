@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
+import ConsolePanel from "@/components/console/ConsolePanel";
 import {
   Zap,
   Wrench,
@@ -10,8 +11,8 @@ import {
   Moon,
 } from "lucide-react";
 
-const SIDEBAR_OPEN = 224;  // 14rem
-const SIDEBAR_COLLAPSED = 60; // 3.75rem
+const SIDEBAR_OPEN = 224;
+const SIDEBAR_COLLAPSED = 60;
 
 interface AppLayoutProps {
   children: (props: { tab: string }) => ReactNode;
@@ -76,18 +77,21 @@ export default function AppLayout({
 
   return (
     <div
-      className="grid h-dvh w-dvw overflow-hidden"
-      style={{ gridTemplateColumns: "auto 1fr" }}
+      className="grid h-dvh w-dvw overflow-hidden transition-[grid-template-columns] duration-300 ease-out"
+      style={{
+        gridTemplateColumns: `${sidebarOpen ? SIDEBAR_OPEN : SIDEBAR_COLLAPSED}px 1fr`,
+        gridTemplateRows: "1fr auto",
+      }}
     >
-      {/* Sidebar */}
+      {/* ── Sidebar (full height) ── */}
       <aside
         className="flex flex-col border-r border-sidebar-border bg-sidebar overflow-hidden min-w-0 transition-[width] duration-300 ease-out"
-        style={{ width: sidebarOpen ? SIDEBAR_OPEN : SIDEBAR_COLLAPSED }}
+        style={{ gridRow: "1 / -1" }}
       >
         {/* Brand + collapse */}
-        <div className="flex items-center justify-between shrink-0 px-4 pt-4 pb-3 border-b border-accent-brand/15">
+        <div className="flex items-center justify-between shrink-0 px-4 pt-4 pb-3 border-b border-trace-copper/15">
           {sidebarOpen ? (
-            <span className="text-caption font-semibold tracking-overline text-muted-foreground/70 uppercase">
+            <span className="text-caption font-display font-medium tracking-overline text-muted-foreground/70 uppercase">
               pawflash
             </span>
           ) : null}
@@ -102,7 +106,7 @@ export default function AppLayout({
         </div>
 
         {/* Nav */}
-        <nav className="flex flex-col gap-1 px-3 shrink-0">
+        <nav className="flex flex-col gap-1 px-3 mt-2 shrink-0">
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = tab === item.id;
@@ -114,7 +118,7 @@ export default function AppLayout({
                 className={
                   "relative after:absolute after:left-0 after:top-1/2 after:-translate-y-1/2 after:h-4 after:w-0.5 after:rounded-full after:transition-opacity after:duration-200 " +
                   (isActive
-                    ? "bg-accent-brand/10 text-accent-brand after:bg-accent-brand after:opacity-100"
+                    ? "bg-trace-copper/10 text-trace-copper after:bg-trace-copper after:opacity-100"
                     : "text-muted-foreground hover:text-foreground hover:bg-muted/40 after:opacity-0")
                 }
                 onClick={() => setTab(item.id)}
@@ -129,7 +133,7 @@ export default function AppLayout({
         {/* Spacer */}
         <div className="min-h-0 flex-1" />
 
-        {/* Actions slot */}
+        {/* Sidebar actions (device status, reboot) */}
         {sidebarActions && (
           <div className="mb-3 px-4">
             {typeof sidebarActions === "function"
@@ -175,10 +179,13 @@ export default function AppLayout({
         </div>
       </aside>
 
-      {/* Main */}
+      {/* ── Main content (scrolls) ── */}
       <main ref={mainRef} className="overflow-y-auto p-5 max-sm:p-3">
         {children({ tab })}
       </main>
+
+      {/* ── Console panel (sticky bottom) ── */}
+      <ConsolePanel />
     </div>
   );
 }

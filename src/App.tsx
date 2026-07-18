@@ -2,6 +2,7 @@ import { useState, useEffect, lazy, Suspense, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { toast, Toaster } from "sonner";
 import AppLayout from "@/components/layout/AppLayout";
+import { ConsoleProvider } from "@/components/console/ConsoleContext";
 import { Button } from "@/components/ui/button";
 import { Select, SelectTrigger, SelectContent, SelectItem } from "@/components/ui/select";
 import { RotateCcw, RefreshCw } from "lucide-react";
@@ -75,7 +76,7 @@ function App() {
   const vars = device?.vars ?? {};
 
   return (
-    <>
+    <ConsoleProvider>
       <AppLayout
         theme={theme}
         onThemeChange={onThemeChange}
@@ -101,27 +102,27 @@ function App() {
 
             {/* Device status */}
             {sidebarOpen ? (
-              <div className="panel-inset px-2.5 py-2 text-xs space-y-1.5">
+              <div className="rounded-sm border border-border/60 bg-muted/30 px-2.5 py-2 text-xs space-y-1.5">
                 <div className="flex items-center gap-2">
-                  <span className={`size-2.5 rounded-full transition-colors duration-300 ${connected ? "dot-complete" : "dot-waiting animate-pulse"}`} />
-                  <span className="font-medium">{connected ? "Connected" : "Disconnected"}</span>
+                  <span className={`size-2 rounded-full transition-colors duration-300 ${connected ? "dot-complete" : "dot-waiting animate-pulse"}`} />
+                  <span className={connected ? "text-foreground font-medium" : "text-muted-foreground"}>
+                    {connected ? "Connected" : "Disconnected"}
+                  </span>
                   <Button variant="ghost" size="icon-xs" className="ml-auto" onClick={fetchDevice} disabled={deviceLoading}>
                     <RefreshCw size={14} className={deviceLoading ? "animate-spin" : ""} />
                   </Button>
                 </div>
                 {connected && (
                   <div className="text-muted-foreground space-y-0.5">
-                    <div>
-                      <span className="tracking-label uppercase">Serial</span>{" "}
+                    <div className="text-trace-copper font-mono text-caption">
                       {device?.serial ?? "—"}
                     </div>
-                    <div>
-                      <span className="tracking-label uppercase">Product</span>{" "}
-                      {vars.product ?? "—"}
-                    </div>
-                    <div>
-                      <span className="tracking-label uppercase">Slot</span>{" "}
-                      {vars["current-slot"] ?? "—"}
+                    <div className="flex items-center gap-1.5 text-caption">
+                      <span className="text-muted-foreground">{vars.product ?? "—"}</span>
+                      <span className="text-muted-foreground/40">·</span>
+                      <span className="text-muted-foreground">
+                        slot {vars["current-slot"] ?? "—"}
+                      </span>
                     </div>
                   </div>
                 )}
@@ -134,7 +135,7 @@ function App() {
                 onClick={fetchDevice}
                 disabled={deviceLoading}
               >
-                <span className={`size-2.5 rounded-full transition-colors duration-300 ${connected ? "dot-complete" : "dot-waiting animate-pulse"}`} />
+                <span className={`size-2 rounded-full transition-colors duration-300 ${connected ? "dot-complete" : "dot-waiting animate-pulse"}`} />
               </Button>
             )}
           </div>
@@ -151,7 +152,7 @@ function App() {
         )}
       </AppLayout>
       <Toaster richColors position="top-center" theme={theme} />
-    </>
+    </ConsoleProvider>
   );
 }
 

@@ -7,8 +7,8 @@ export default function SettingsTab() {
         <InfoRow label="Stack" value="Tauri v2 + React 19 + Rust" />
         <InfoRow label="License" value="GPL-3.0-or-later" />
       </div>
-      <p className="text-caption text-muted-foreground/60 px-1">
-        MTK device flashing toolkit — force fastboot via preloader serial.
+      <p className="text-caption text-muted-foreground/60 px-1 font-mono">
+        · mtk device flashing toolkit
       </p>
     </div>
   );
@@ -17,7 +17,7 @@ export default function SettingsTab() {
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-baseline justify-between gap-4">
-      <span className="text-label font-semibold uppercase tracking-label text-muted-foreground/70">
+      <span className="text-caption font-display font-medium uppercase tracking-wider text-muted-foreground/70">
         {label}
       </span>
       <span className="text-body text-foreground/90 text-right">{value}</span>

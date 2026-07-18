@@ -1,10 +1,13 @@
 import { useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, Channel } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { useConsole } from "@/hooks/useConsole";
+import type { DeviceInfo } from "@/types/api";
+import type { ProgressEvent } from "@/types/progress";
 import {
   Zap,
   Lock,
@@ -14,7 +17,6 @@ import {
   Copy,
   LoaderCircle,
 } from "lucide-react";
-import type { DeviceInfo } from "@/types/api";
 
 interface ConfirmAction {
   title: string;
@@ -30,6 +32,7 @@ interface MainTabProps {
 }
 
 export default function MainTab({ device, onRefresh }: MainTabProps) {
+  const { addProgressEvent } = useConsole();
   const [connecting, setConnecting] = useState(false);
   const [lockLoading, setLockLoading] = useState(false);
   const [unlockLoading, setUnlockLoading] = useState(false);
@@ -44,7 +47,9 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
   const forceFastboot = async () => {
     setConnecting(true);
     try {
-      await invoke("force_fastboot");
+      const channel = new Channel<ProgressEvent>();
+      channel.onmessage = addProgressEvent;
+      await invoke("force_fastboot", { onEvent: channel });
       await onRefresh();
     } catch (e) {
       toast.error(`Force fastboot failed: ${e}`);
@@ -103,35 +108,38 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
 
   return (
     <div className="space-y-5">
-      {/* Force Fastboot — hero action */}
+      {/* Enter Fastboot Mode — hero action */}
       <section className="panel-shell overflow-hidden">
         <div className="flex items-start gap-5 px-5 py-5">
-          <span className="flex size-10 shrink-0 items-center justify-center rounded-md bg-accent-brand/10 text-accent-brand">
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-md bg-trace-copper/10 text-trace-copper">
             <Zap size={20} />
           </span>
           <div className="min-w-0 flex-1">
-            <h2 className="text-body font-semibold text-foreground">
-              Force Fastboot
+            <h2 className="text-body font-display font-medium uppercase tracking-wider text-foreground">
+              Enter Fastboot Mode
             </h2>
             <p className="mt-1 text-label text-muted-foreground leading-normal max-w-lg">
               Force a MediaTek device into fastboot mode via preloader serial handshake.
             </p>
             <div className="mt-3 flex items-center gap-3">
               <Button
+                variant="accent"
                 size="default"
                 onClick={() =>
                   setConfirmDialog({
-                    title: "Force Fastboot",
+                    title: "Enter Fastboot Mode",
                     description:
                       "This will attempt to force your MediaTek device into fastboot mode via preloader serial handshake. Ensure the device is powered off and connected via USB.",
-                    confirmLabel: "Force",
+                    confirmLabel: "Enter Fastboot",
                     variant: "default",
                     onConfirm: forceFastboot,
                   })
                 }
                 disabled={connecting}
               >
-                {connecting ? <><LoaderCircle size={14} className="animate-spin" /> Connecting...</> : "Force Fastboot"}
+                {connecting
+                  ? <><LoaderCircle size={14} className="animate-spin" /> Connecting...</>
+                  : "Enter Fastboot Mode"}
               </Button>
               <span className={`size-1.5 rounded-full transition-colors duration-300 ${connected ? "dot-complete" : "dot-waiting animate-pulse"}`} />
               <span className="text-caption text-muted-foreground">
@@ -140,10 +148,9 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
             </div>
           </div>
         </div>
-        {/* Connected device info strip */}
         {connected && (
-          <div className="animate-in fade-in slide-in-from-top-1 duration-200 border-t border-border/50 px-5 py-2.5 flex items-center gap-4 text-caption text-muted-foreground/80 bg-success/[0.08]">
-            <span className="font-mono text-accent-brand/70">{device?.serial ?? "—"}</span>
+          <div className="animate-in fade-in slide-in-from-top-1 duration-200 border-t border-border/50 px-5 py-2.5 flex items-center gap-4 text-caption text-muted-foreground/80 bg-signal-green/[0.06]">
+            <span className="font-mono text-trace-copper">{device?.serial ?? "—"}</span>
             <span className="w-px h-3 bg-border/50" />
             <span>{vars.product ?? "—"}</span>
             {vars["current-slot"] && (
@@ -160,7 +167,9 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
       <section className="panel-shell flex items-center justify-between gap-5 px-5 py-3 max-sm:flex-wrap">
         <div className="flex items-center gap-3 min-w-0">
           <Lock size={16} className="shrink-0 text-muted-foreground" />
-          <span className="text-body font-medium text-foreground/90">Bootloader</span>
+          <span className="text-body font-display font-medium uppercase tracking-wider text-foreground/90">
+            Bootloader
+          </span>
         </div>
         <div className="flex items-center gap-1.5">
           <Button
@@ -177,7 +186,7 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
             }
             disabled={lockLoading || !connected}
           >
-          {lockLoading ? <><LoaderCircle size={14} className="animate-spin" /> Locking...</> : <><Lock size={14} className="mr-1" /> Lock</>}
+          {lockLoading ? <><LoaderCircle size={14} className="animate-spin" /> Locking...</> : <><Lock size={14} className="mr-1" /> Lock Bootloader</>}
             </Button>
             <Button
               variant="ghost"
@@ -193,7 +202,7 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
               }
               disabled={unlockLoading || !connected}
             >
-              {unlockLoading ? <><LoaderCircle size={14} className="animate-spin" /> Unlocking...</> : <><Unlock size={14} className="mr-1" /> Unlock</>}
+              {unlockLoading ? <><LoaderCircle size={14} className="animate-spin" /> Unlocking...</> : <><Unlock size={14} className="mr-1" /> Unlock Bootloader</>}
           </Button>
         </div>
       </section>
@@ -202,7 +211,9 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
       <section className="panel-shell flex items-center justify-between gap-5 px-5 py-3">
         <div className="flex items-center gap-3 min-w-0">
           <Cpu size={16} className="shrink-0 text-muted-foreground" />
-          <span className="text-body font-medium text-foreground/90">Active Slot</span>
+          <span className="text-body font-display font-medium uppercase tracking-wider text-foreground/90">
+            Active Slot
+          </span>
         </div>
         <div className="flex rounded-lg border border-border overflow-hidden">
           {["a", "b"].map((slot) => (
@@ -214,7 +225,7 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
               disabled={!connected}
               className={`rounded-none ${
                 vars["current-slot"] === slot
-                  ? "bg-accent-brand text-accent-brand-foreground hover:bg-accent-brand/90"
+                  ? "bg-trace-copper text-white hover:bg-trace-gold"
                   : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
               }`}
             >
@@ -224,13 +235,13 @@ export default function MainTab({ device, onRefresh }: MainTabProps) {
         </div>
       </section>
 
-      {/* Get variable */}
+      {/* Read variable */}
       <section className="panel-shell px-5 py-3">
         <Label
           htmlFor="var-name"
-          className="text-caption font-semibold uppercase tracking-label text-muted-foreground mb-2 block"
+          className="text-caption font-display font-medium uppercase tracking-wider text-muted-foreground mb-2 block"
         >
-          Get Variable
+          Read Variable
         </Label>
         <div className="flex items-end gap-2 max-w-sm">
           <div className="flex-1">

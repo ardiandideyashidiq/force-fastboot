@@ -1,9 +1,12 @@
 import { useState, useMemo } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, Channel } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Select, SelectTrigger, SelectContent, SelectItem } from "@/components/ui/select";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { useConsole } from "@/hooks/useConsole";
+import type { ScatterFile } from "@/types/api";
+import type { ProgressEvent } from "@/types/progress";
 import {
   FileText,
   Upload,
@@ -14,7 +17,6 @@ import {
   Gauge,
   LoaderCircle,
 } from "lucide-react";
-import type { ScatterFile } from "@/types/api";
 
 interface ConfirmAction {
   title: string;
@@ -24,6 +26,7 @@ interface ConfirmAction {
 }
 
 export default function ToolsTab() {
+  const { addProgressEvent } = useConsole();
   const [scatterPath, setScatterPath] = useState("");
   const [scatterMeta, setScatterMeta] = useState<ScatterFile | null>(null);
   const [scatterLoading, setScatterLoading] = useState(false);
@@ -87,10 +90,12 @@ export default function ToolsTab() {
   const handleDisableVbmeta = async () => {
     setVbmetaLoading(true);
     try {
-      await invoke("disable_vbmeta");
-      toast.success("AVB/verity disabled");
+      const channel = new Channel<ProgressEvent>();
+      channel.onmessage = addProgressEvent;
+      await invoke("disable_vbmeta", { onEvent: channel });
+      toast.success("Verified boot disabled");
     } catch (e) {
-      toast.error(`Failed to disable AVB: ${e}`);
+      toast.error(`Failed to disable verified boot: ${e}`);
     }
     setVbmetaLoading(false);
   };
@@ -98,10 +103,15 @@ export default function ToolsTab() {
   const handleFormatData = async () => {
     setFormatLoading(true);
     try {
+      const channel = new Channel<ProgressEvent>();
+      channel.onmessage = addProgressEvent;
       await invoke("format_data", {
         fsType: formatFsType,
+        fsOptions: [] as string[],
+        cleanTest: false,
+        onEvent: channel,
       });
-      toast.success("Data partition formatted");
+      toast.success("User data formatted");
     } catch (e) {
       toast.error(`Format failed: ${e}`);
     }
@@ -112,11 +122,14 @@ export default function ToolsTab() {
     if (!gsiPath) return;
     setGsiLoading(true);
     try {
+      const channel = new Channel<ProgressEvent>();
+      channel.onmessage = addProgressEvent;
       await invoke("flash_gsi", {
         imagePath: gsiPath,
         cleanTest: false,
+        onEvent: channel,
       });
-      toast.success("Flashing complete");
+      toast.success("GSI flashing complete");
     } catch (e) {
       toast.error(`GSI flash failed: ${e}`);
     }
@@ -136,6 +149,8 @@ export default function ToolsTab() {
     if (!scatterPath) return;
     setPlanLoading(true);
     try {
+      const channel = new Channel<ProgressEvent>();
+      channel.onmessage = addProgressEvent;
       await invoke("execute_plan", {
         path: scatterPath,
         options: {
@@ -147,6 +162,7 @@ export default function ToolsTab() {
           check_images: false,
           include_preloader: false,
         },
+        onEvent: channel,
       });
       toast.success("Flash plan executed");
     } catch (e) {
@@ -160,11 +176,11 @@ export default function ToolsTab() {
       {/* Scatter File */}
       <section className="panel-shell overflow-hidden">
         <div className="flex items-start gap-4 px-5 py-5">
-          <span className="flex size-10 shrink-0 items-center justify-center rounded-md bg-accent-soft text-accent-soft-foreground">
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-md bg-trace-copper/10 text-trace-copper">
             <FileText size={18} />
           </span>
           <div className="min-w-0 flex-1">
-            <h2 className="text-body font-semibold text-foreground">
+            <h2 className="text-body font-display font-medium uppercase tracking-wider text-foreground">
               Scatter File
             </h2>
             <div className="mt-2 flex items-center gap-2">
@@ -213,7 +229,7 @@ export default function ToolsTab() {
                   </>
                 </div>
                   <Button
-                    variant="default"
+                    variant="accent"
                     size="sm"
                     onClick={handleExecutePlan}
                     disabled={planLoading}
@@ -231,7 +247,9 @@ export default function ToolsTab() {
         <div className="flex items-center gap-3 min-w-0">
           <Gauge size={16} className="shrink-0 text-muted-foreground" />
           <div className="min-w-0">
-            <p className="text-body font-medium text-foreground/90">GSI Flash</p>
+            <p className="text-body font-display font-medium uppercase tracking-wider text-foreground/90">
+              Flash GSI Image
+            </p>
             {gsiPath && (
               <p className="text-caption font-mono text-muted-foreground truncate max-w-[20rem] max-sm:max-w-full">
                 {gsiPath}
@@ -245,7 +263,7 @@ export default function ToolsTab() {
             Select
           </Button>
           <Button
-            variant="default"
+            variant="accent"
             size="sm"
             onClick={handleFlashGsi}
             disabled={!gsiPath || gsiLoading}
@@ -255,13 +273,15 @@ export default function ToolsTab() {
         </div>
       </section>
 
-      {/* Format Data + Disable AVB */}
+      {/* Format User Data + Disable Verified Boot */}
       <div className="grid grid-cols-2 max-sm:grid-cols-1 gap-3">
         <section className="panel-shell flex items-center justify-between gap-3 px-5 py-3">
           <div className="flex items-center gap-3 min-w-0">
             <HardDrive size={16} className="shrink-0 text-muted-foreground" />
             <div>
-              <p className="text-body font-medium text-foreground/90">Format Data</p>
+              <p className="text-body font-display font-medium uppercase tracking-wider text-foreground/90">
+                Format User Data
+              </p>
               <p className="text-caption text-muted-foreground/70 leading-tight">
                 {formatFsType.toUpperCase()}
               </p>
@@ -278,11 +298,11 @@ export default function ToolsTab() {
               </SelectContent>
             </Select>
             <Button
-              variant="default"
+              variant="accent"
               size="sm"
               onClick={() =>
                 setConfirmDialog({
-                  title: "Format Data",
+                  title: "Format User Data",
                   description:
                     "This will erase all user data on the device. The data partition will be reformatted and all contents will be lost. Continue?",
                   confirmLabel: "Format",
@@ -301,7 +321,9 @@ export default function ToolsTab() {
           <div className="flex items-center gap-3 min-w-0">
             <ShieldOff size={16} className="shrink-0 text-muted-foreground" />
             <div>
-              <p className="text-body font-medium text-foreground/90">Disable AVB</p>
+              <p className="text-body font-display font-medium uppercase tracking-wider text-foreground/90">
+                Disable Verified Boot
+              </p>
               <p className="text-caption text-muted-foreground/70 leading-tight">
                 dm-verity + AVB
               </p>
@@ -312,7 +334,7 @@ export default function ToolsTab() {
             size="sm"
             onClick={() =>
               setConfirmDialog({
-                title: "Disable AVB",
+                title: "Disable Verified Boot",
                 description:
                   "Disabling dm-verity and AVB will weaken device security verification. This is typically needed only when flashing custom firmware. Continue?",
                 confirmLabel: "Disable",
