@@ -20,6 +20,9 @@ pub enum GsiError {
     #[error("partition resolution: {0}")]
     PartitionResolution(String),
 
+    #[error("mode transition failed: {0}")]
+    Transition(String),
+
     #[error("sparse header: {0}")]
     SparseHeader(String),
 }

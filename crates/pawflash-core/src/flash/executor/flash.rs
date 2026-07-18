@@ -111,7 +111,7 @@ impl<T: FlashTransport> FlashExecutor<T> {
             )
             .await
         } else {
-            self.flash_raw_partition(partition, path, size, progress_bar).await
+            self.flash_raw_partition(partition, path, size, progress_bar, &mut xbuf).await
         }
     }
 
@@ -218,15 +218,16 @@ impl<T: FlashTransport> FlashExecutor<T> {
         path: &Path,
         size: u32,
         progress_bar: Option<&ProgressBar>,
+        xbuf: &mut crate::flash::sparse::XferBuf,
     ) -> Result<String> {
         debug!(%partition, file_size = size, "flashing raw partition");
         let mut file = tokio::fs::File::open(path).await?;
         let mut sender = self.fb.download(size).await?;
 
-        let mut buf = vec![0u8; 1024 * 1024];
+        let buf = xbuf.get(1024 * 1024);
         let mut written = 0u64;
         loop {
-            let n = file.read(&mut buf).await?;
+            let n = file.read(buf).await?;
             if n == 0 {
                 break;
             }

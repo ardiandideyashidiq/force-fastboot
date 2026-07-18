@@ -26,7 +26,7 @@ impl XferBuf {
         Self { buf: vec![0u8; 1024 * 1024] }
     }
 
-    fn get(&mut self, size_hint: usize) -> &mut [u8] {
+    pub(crate) fn get(&mut self, size_hint: usize) -> &mut [u8] {
         let needed = size_hint.max(1024 * 1024);
         if self.buf.len() < needed {
             self.buf.resize(needed, 0);

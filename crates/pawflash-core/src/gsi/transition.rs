@@ -115,9 +115,9 @@ pub(super) async fn transition_mode(
         if attempt == 0 {
             executor = FlashExecutor::wait_for_device(Duration::from_secs(30)).await?;
         } else {
-            return Err(crate::gsi::error::GsiError::PartitionResolution(format!("device did not switch to {} after retry", target.as_str())));
+            return Err(crate::gsi::error::GsiError::Transition(format!("device did not switch to {} after retry", target.as_str())));
         }
     }
 
-    unreachable!()
+    Err(crate::gsi::error::GsiError::Transition(format!("device did not switch to {} after exhaustive retry", target.as_str())))
 }
