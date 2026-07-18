@@ -320,6 +320,7 @@ impl<T: FlashTransport> FlashExecutor<T> {
 
         info!(%partition, part_size, footer_size, "flashing empty filesystem via sparse wrap");
 
+        let mut xbuf = crate::flash::sparse::XferBuf::new();
         let result = crate::flash::sparse::sparse_wrap_file(
             &mut self.fb,
             partition,
@@ -327,6 +328,7 @@ impl<T: FlashTransport> FlashExecutor<T> {
             part_size,
             wc.max_download,
             footer_size,
+            &mut xbuf,
         )
         .await;
 

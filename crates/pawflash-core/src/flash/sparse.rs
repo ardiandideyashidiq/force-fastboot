@@ -19,6 +19,26 @@ use tracing::{debug, info};
 use crate::flash::error::{FlashError, Result};
 use crate::flash::transport::FlashTransport;
 
+/// Reusable 1 MiB transfer buffer to avoid per-chunk allocation.
+pub(crate) struct XferBuf {
+    buf: Vec<u8>,
+}
+
+impl XferBuf {
+    pub(crate) fn new() -> Self {
+        Self { buf: vec![0u8; 1024 * 1024] }
+    }
+
+    fn get(&mut self, size_hint: usize) -> &mut [u8] {
+        let needed = size_hint.max(1024 * 1024);
+        if self.buf.len() < needed {
+            self.buf.resize(needed, 0);
+        }
+        let end = needed.min(self.buf.len());
+        &mut self.buf[..end]
+    }
+}
+
 /// Crypto footer offset used by legacy FDE (Full Disk Encryption).
 /// TWRP preserves this space during mkfs and wipes it afterward
 /// to remove encryption — matches `CRYPT_FOOTER_OFFSET` in `bootable/recovery/partition.cpp`.
@@ -90,6 +110,7 @@ pub(crate) async fn flash_sparse_image(
     file_len: u64,
     max_download: u32,
     progress_bar: Option<&ProgressBar>,
+    buf: &mut XferBuf,
 ) -> Result<String> {
     debug!(%partition, file_len, max_download, "flashing sparse image");
 
@@ -168,11 +189,11 @@ pub(crate) async fn flash_sparse_image(
                 file.seek(SeekFrom::Start(chunk.offset as u64)).await?;
 
                 let mut remaining = chunk.size;
-                let mut buf = vec![0u8; 1024 * 1024];
+                let buf_slice = buf.get(1024 * 1024);
                 while remaining > 0 {
-                    let to_read = buf.len().min(remaining);
-                    read_exact_padded_or_truncate(&mut file, &mut buf[..to_read], chunk.size).await?;
-                    sender.extend_from_slice(&buf[..to_read]).await?;
+                    let to_read = buf_slice.len().min(remaining);
+                    read_exact_padded_or_truncate(&mut file, &mut buf_slice[..to_read], chunk.size).await?;
+                    sender.extend_from_slice(&buf_slice[..to_read]).await?;
                     if let Some(pb) = progress_bar {
                         pb.inc(to_read as u64);
                     }
@@ -205,6 +226,7 @@ pub(crate) async fn flash_sparse_wrapped(
     path: &Path,
     file_len: u64,
     max_download: u32,
+    buf: &mut XferBuf,
 ) -> Result<String> {
     debug!(%partition, file_len, max_download, "wrapping raw image in sparse format");
 
@@ -245,15 +267,15 @@ pub(crate) async fn flash_sparse_wrapped(
                 file.seek(SeekFrom::Start(chunk.offset as u64)).await?;
 
                 let mut remaining = chunk.size;
-                let mut buf = vec![0u8; 1024 * 1024];
+                let chunk_buf = buf.get(1024 * 1024);
                 while remaining > 0 {
-                    let to_read = buf.len().min(remaining);
+                    let to_read = chunk_buf.len().min(remaining);
                     // Use plain read_exact_padded here (not the truncation-check
                     // variant) because split_raw may create chunks that extend
                     // past the end of the file for block alignment.  Zero-filling
                     // the tail is correct.
-                    read_exact_padded(&mut file, &mut buf[..to_read]).await?;
-                    sender.extend_from_slice(&buf[..to_read]).await?;
+                    read_exact_padded(&mut file, &mut chunk_buf[..to_read]).await?;
+                    sender.extend_from_slice(&chunk_buf[..to_read]).await?;
                     remaining = remaining.saturating_sub(to_read);
                 }
             }
@@ -290,6 +312,7 @@ pub(crate) async fn sparse_wrap_file(
     part_size: u64,
     max_download: u32,
     footer_size: u64,
+    buf: &mut XferBuf,
 ) -> Result<String> {
     debug!(%partition, part_size, footer_size, max_download, "full-scan sparse wrapping");
 
@@ -377,11 +400,11 @@ pub(crate) async fn sparse_wrap_file(
         if chunk.size > 0 {
             file.seek(SeekFrom::Start(chunk.offset as u64)).await?;
             let mut remaining = chunk.size;
-            let mut buf = vec![0u8; 1024 * 1024];
+            let chunk_buf = buf.get(1024 * 1024);
             while remaining > 0 {
-                let to_read = buf.len().min(remaining);
-                read_exact_padded(&mut file, &mut buf[..to_read]).await?;
-                sender.extend_from_slice(&buf[..to_read]).await?;
+                let to_read = chunk_buf.len().min(remaining);
+                read_exact_padded(&mut file, &mut chunk_buf[..to_read]).await?;
+                sender.extend_from_slice(&chunk_buf[..to_read]).await?;
                 remaining = remaining.saturating_sub(to_read);
             }
         }

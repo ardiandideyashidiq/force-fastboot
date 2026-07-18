@@ -398,6 +398,9 @@ impl<T: FlashTransport> FlashExecutor<T> {
         max_download: u32,
         progress_bar: Option<&ProgressBar>,
     ) -> Result<String> {
+        // Shared transfer buffer reused across all sparse operations.
+        let mut xbuf = crate::flash::sparse::XferBuf::new();
+
         // Route Android sparse images through the sparse-aware handler.
         if crate::flash::sparse::is_sparse_image(path).await.unwrap_or(false) {
             let file_len = tokio::fs::metadata(path).await?.len();
@@ -408,6 +411,7 @@ impl<T: FlashTransport> FlashExecutor<T> {
                 file_len,
                 max_download,
                 progress_bar,
+                &mut xbuf,
             )
             .await;
         }
@@ -437,6 +441,7 @@ impl<T: FlashTransport> FlashExecutor<T> {
                 path,
                 file_len,
                 max_download,
+                &mut xbuf,
             )
             .await
         } else {
