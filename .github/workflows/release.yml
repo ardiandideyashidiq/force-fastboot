@@ -66,7 +66,7 @@ jobs:
       - run: cargo build --release --target ${{ matrix.target }} -p pawflash-cli
 
       - name: Stage binary
-        run: cp target/${{ matrix.target }}/release/pawflash${{ matrix.os == 'windows-latest' && '.exe' || '' }} ${{ matrix.artifact_name }}
+        run: cp target/${{ matrix.target }}/release/pawflash-cli${{ matrix.os == 'windows-latest' && '.exe' || '' }} ${{ matrix.artifact_name }}
 
       - uses: actions/upload-artifact@v4
         with:
