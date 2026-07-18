@@ -14,7 +14,6 @@ import {
   Trash2,
   ShieldOff,
   HardDrive,
-  Gauge,
   LoaderCircle,
 } from "lucide-react";
 
@@ -27,8 +26,6 @@ export default function ToolsTab() {
   const [formatLoading, setFormatLoading] = useState(false);
   const [planLoading, setPlanLoading] = useState(false);
   const [formatFsType, setFormatFsType] = useState("f2fs");
-  const [gsiPath, setGsiPath] = useState("");
-  const [gsiLoading, setGsiLoading] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState<ConfirmAction | null>(null);
 
   const pickScatter = async () => {
@@ -52,28 +49,6 @@ export default function ToolsTab() {
           toast.error(`Failed to parse scatter: ${e}`);
         }
         setScatterLoading(false);
-      }
-    } catch (e) {
-      toast.error(`File dialog error: ${e}`);
-    }
-  };
-
-  const pickGsi = async () => {
-    try {
-      const { open } = await import("@tauri-apps/plugin-dialog");
-      const selected = await open({
-        multiple: false,
-        filters: [
-          { name: "GSI Image", extensions: ["img"] },
-        ],
-      });
-      if (selected) {
-        const path = selected as string;
-        if (!path.toLowerCase().endsWith(".img")) {
-          toast.error("Selected file is not a .img image");
-          return;
-        }
-        setGsiPath(path);
       }
     } catch (e) {
       toast.error(`File dialog error: ${e}`);
@@ -109,24 +84,6 @@ export default function ToolsTab() {
       toast.error(`Format failed: ${e}`);
     }
     setFormatLoading(false);
-  };
-
-  const handleFlashGsi = async () => {
-    if (!gsiPath) return;
-    setGsiLoading(true);
-    try {
-      const channel = new Channel<ProgressEvent>();
-      channel.onmessage = addProgressEvent;
-      await invoke("flash_gsi", {
-        imagePath: gsiPath,
-        cleanTest: false,
-        onEvent: channel,
-      });
-      toast.success("GSI flashing complete");
-    } catch (e) {
-      toast.error(`GSI flash failed: ${e}`);
-    }
-    setGsiLoading(false);
   };
 
   const partitionCount = useMemo(
@@ -232,37 +189,6 @@ export default function ToolsTab() {
               </div>
             )}
           </div>
-        </div>
-      </section>
-
-      {/* GSI Flash */}
-      <section className="panel-shell flex items-center justify-between gap-3 px-5 py-3">
-        <div className="flex items-center gap-3 min-w-0">
-          <Gauge size={16} className="shrink-0 text-muted-foreground" />
-          <div className="min-w-0">
-            <p className="text-body font-display font-medium uppercase tracking-wider text-foreground/90">
-              Flash GSI Image
-            </p>
-            {gsiPath && (
-              <p className="text-caption font-mono text-muted-foreground truncate max-w-[20rem] max-sm:max-w-full">
-                {gsiPath}
-              </p>
-            )}
-          </div>
-        </div>
-        <div className="flex items-center gap-1.5 shrink-0">
-          <Button variant="ghost" size="sm" onClick={pickGsi}>
-            <Upload size={14} className="mr-1" />
-            Select
-          </Button>
-          <Button
-            variant="accent"
-            size="sm"
-            onClick={handleFlashGsi}
-            disabled={!gsiPath || gsiLoading}
-          >
-            {gsiLoading ? <><LoaderCircle size={14} className="animate-spin" /> Flashing...</> : "Flash"}
-          </Button>
         </div>
       </section>
 

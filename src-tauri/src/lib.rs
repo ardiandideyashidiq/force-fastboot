@@ -7,7 +7,7 @@ use std::path::Path;
 use pawflash_core::flash::executor::BootTarget;
 use pawflash_core::flash::FlashExecutor;
 use pawflash_core::format::generator::{self, FsType};
-use pawflash_core::gsi::GsiEvent;
+
 use pawflash_core::scatter_parser as sp;
 use serde::Serialize;
 use tauri::ipc::Channel;
@@ -458,85 +458,6 @@ async fn flash_raw_image(
   Ok(resp)
 }
 
-#[tracing::instrument(skip(app, on_event), fields(image_path, clean_test))]
-#[tauri::command]
-async fn flash_gsi(
-  app: tauri::AppHandle,
-  image_path: String,
-  clean_test: bool,
-  on_event: Channel<ProgressEvent>,
-) -> Result<String, String> {
-  let path = Path::new(&image_path);
-  if !path.exists() {
-    warn!(%image_path, "GSI image not found");
-    return Err(format!("GSI image not found: {image_path}"));
-  }
-  let image = path.canonicalize().map_err(|e| {
-    warn!(%image_path, error = %e, "path canonicalize failed");
-    format!("failed to resolve path: {e}")
-  })?;
-
-  send_progress(&on_event, ProgressEvent::Phase { phase: "connecting".into(), message: "Connecting to device...".into() });
-  let executor = FlashExecutor::connect().await.map_err(|e| {
-    warn!(error = %e, "connect failed");
-    e.to_string()
-  })?;
-
-  let report = |event: GsiEvent| {
-    let msg = match &event {
-      GsiEvent::Step(s) => {
-        trace!(step = %s.as_str(), "GSI step");
-        ProgressEvent::Phase { phase: "gsi-step".into(), message: s.as_str().into() }
-      }
-      GsiEvent::ModeDetected(m) => {
-        debug!(mode = %m.as_str(), "GSI mode detected");
-        ProgressEvent::Phase { phase: "mode".into(), message: format!("Detected mode: {}", m.as_str()) }
-      }
-      GsiEvent::ModeReady(m) => {
-        info!(mode = %m.as_str(), "GSI mode ready");
-        ProgressEvent::Phase { phase: "mode".into(), message: format!("Ready in mode: {}", m.as_str()) }
-      }
-      GsiEvent::ResolvedPartition { base, partition, size_bytes } => {
-        info!(%base, %partition, %size_bytes, "GSI partition resolved");
-        ProgressEvent::Phase { phase: "resolved".into(), message: format!("{base} → {partition} ({size_bytes} bytes)") }
-      }
-      GsiEvent::Flashing { partition, size_bytes: _ } => {
-        debug!(%partition, "GSI flashing");
-        ProgressEvent::FlashProgress { partition: partition.clone(), percent: 0.0 }
-      }
-      GsiEvent::Wiping { partition } => {
-        info!(%partition, "GSI wiping");
-        ProgressEvent::FormatProgress { partition: partition.clone(), status: "wiping".into() }
-      }
-      GsiEvent::PartitionSkipped { partition, reason } => {
-        warn!(%partition, %reason, "GSI partition skipped");
-        ProgressEvent::Warning { message: format!("Skipped {partition}: {reason}") }
-      }
-    };
-    let _ = on_event.send(msg);
-  };
-
-  info!(image = %image.display(), %clean_test, "starting GSI flash");
-  let outcome = pawflash_core::gsi::execute_gsi_flash(executor, &image, clean_test, None, report)
-    .await
-    .map_err(|e| {
-      warn!(error = %e, "GSI flash failed");
-      e.to_string()
-    })?;
-
-  let _ = app.emit("flash-complete", ());
-  info!(
-    flash_count = %outcome.summary.flash_count,
-    total_bytes = %outcome.summary.total_bytes,
-    "GSI flash complete"
-  );
-  send_progress(&on_event, ProgressEvent::Done {
-    ok: true,
-    detail: format!("GSI flash complete ({} partitions flashed, {} bytes)", outcome.summary.flash_count, outcome.summary.total_bytes),
-  });
-
-  Ok(format!("{}", outcome.summary.flash_count))
-}
 
 // ── App entry ─────────────────────────────────────────────────────────
 
@@ -559,7 +480,7 @@ pub fn run() {
       build_plan,
       execute_plan,
       flash_raw_image,
-      flash_gsi,
+
     ])
     .run(tauri::generate_context!())
     .expect("error while running pawflash");

@@ -47,12 +47,6 @@ impl MockTransport {
         Self { get_var_responses, commands: Vec::new(), fail_download: false, flash_response: None }
     }
 
-    #[must_use]
-    pub fn with_get_var(mut self, var: &str, resp: &str) -> Self {
-        self.get_var_responses.insert(var.to_string(), Ok(resp.to_string()));
-        self
-    }
-
     pub fn commands(&self) -> &[String] { &self.commands }
 }
 

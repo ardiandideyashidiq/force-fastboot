@@ -13,8 +13,7 @@ pub mod flash;
 pub mod force_fastboot;
 /// Data partition formatting (userdata, cache, metadata).
 pub mod format;
-/// GSI (Generic System Image) flashing workflow.
-pub mod gsi;
+
 /// User-facing output formatting, status lines, and tables.
 pub mod output;
 /// MediaTek scatter manifest parser and flash-plan builder.

@@ -25,7 +25,7 @@ pnpm tauri dev                           # Tauri dev server
 pawflash/
 ├── Cargo.toml                        → workspace: core, cli, src-tauri
 ├── crates/pawflash-core/             → domain: flash/, force_fastboot/,
-│                                        scatter_parser/, format/, gsi/, output/
+│                                        scatter_parser/, format/, output/
 ├── src-tauri/                        → Tauri v2 backend (lib.rs has commands, ProgressEvent)
 ├── src/                              → React 19 + Tailwind v4 frontend
 │   ├── components/{console,layout,tabs,ui}/
@@ -46,7 +46,7 @@ channel.onmessage = (event) => addProgressEvent(event);
 await invoke("force_fastboot", { onEvent: channel });
 ```
 
-Affected commands: `force_fastboot`, `disable_vbmeta`, `format_data`, `execute_plan`, `flash_gsi`, `flash_raw_image`. Omitting `on_event` causes silent runtime errors.
+Affected commands: `force_fastboot`, `disable_vbmeta`, `format_data`, `execute_plan`, `flash_raw_image`. Omitting `on_event` causes silent runtime errors.
 
 `ProgressEvent` uses `#[serde(tag = "event", content = "data")]` — TS discriminated union mirrored in `src/types/progress.ts`.
 

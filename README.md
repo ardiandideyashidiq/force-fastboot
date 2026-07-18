@@ -16,7 +16,7 @@ Prebuilt binaries for Linux (x86_64) and Windows (x86_64) on [releases](https://
 ```
 pawflash force-fastboot [-v]
 pawflash flash scatter <scatter-path> [--mode dry-run|selective|dirty-flash] [--storage auto|all|ufs|emmc] [--part <name>]... [--group <name>]... [--firmware-dir <dir>] [--check-images] [--dry-run] [--json] [--exclude <name>]... [--image-search] [--allow-incomplete-slots] [--include-preloader] [--clean] [--no-format] [--clean-test] [-v]
-pawflash flash gsi <image> [--clean-test]
+
 pawflash flash <partition> <image> [--slot a|b] [--both]
 pawflash disable-vbmeta [-v]
 pawflash format-data [-v] [--fs-options casefold,projid,compress] [--fs-type ext4|f2fs]
