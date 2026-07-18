@@ -34,7 +34,7 @@ jobs:
 
       - run: cargo clippy --all-targets --all-features --locked -- -D warnings
 
-  build:
+  build-cli:
     needs: [check]
     strategy:
       matrix:
@@ -73,8 +73,70 @@ jobs:
           name: ${{ matrix.artifact_name }}
           path: ${{ matrix.artifact_name }}
 
+  build-gui:
+    needs: [check]
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact_name: pawflash-gui-linux
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact_name: pawflash-gui-windows.exe
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install system deps (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libudev-dev \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libglib2.0-dev \
+            libxdo-dev \
+            libssl-dev \
+            librsvg2-dev
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: gui-${{ matrix.target }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Build frontend
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - run: cargo build --release --target ${{ matrix.target }} -p pawflash-tauri
+
+      - name: Stage binary
+        run: cp target/${{ matrix.target }}/release/pawflash-tauri${{ matrix.os == 'windows-latest' && '.exe' || '' }} ${{ matrix.artifact_name }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_name }}
+
   release:
-    needs: build
+    needs: [build-cli, build-gui]
     runs-on: ubuntu-latest
 
     steps:
@@ -103,4 +165,6 @@ jobs:
           files: |
             pawflash-linux/pawflash-linux
             pawflash-windows.exe/pawflash-windows.exe
+            pawflash-gui-linux/pawflash-gui-linux
+            pawflash-gui-windows.exe/pawflash-gui-windows.exe
           fail_on_unmatched_files: true
