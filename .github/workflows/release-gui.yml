@@ -8,7 +8,16 @@ on:
       - 'src-tauri/**'
       - 'package.json'
       - 'pnpm-lock.yaml'
+    paths-ignore:
+      - '**.md'
+      - 'AGENTS.md'
+      - '.gitignore'
+      - 'LICENSE-*'
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: write
@@ -24,7 +33,9 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+        with:
+          deps: gui
 
       - uses: pnpm/action-setup@v4
         with:
@@ -33,22 +44,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: 'pnpm'
+          cache: pnpm
 
-      - uses: dtolnay/rust-toolchain@stable
-
-      - name: Install deps (Linux)
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev libgtk-3-dev \
-            libglib2.0-dev libxdo-dev libssl-dev \
-            librsvg2-dev patchelf
+      - name: Set timestamp tag
+        id: tag
+        run: echo "TAG=gui-release-$(date -u +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
 
       - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: gui-release-${{ github.ref_name }}
-          releaseName: 'pawflash GUI ${{ github.ref_name }}'
+          tagName: ${{ steps.tag.outputs.TAG }}
+          releaseName: 'pawflash GUI ${{ steps.tag.outputs.TAG }}'
