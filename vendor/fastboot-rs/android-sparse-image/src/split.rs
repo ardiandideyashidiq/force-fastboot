@@ -43,6 +43,7 @@ impl Split {
     }
 
     /// Total size of the sparse image that would be generated when writing out the split
+    #[must_use]
     pub fn sparse_size(&self) -> usize {
         FILE_HEADER_BYTES_LEN
             + self

@@ -10,6 +10,7 @@ pub fn set_verbosity(count: u8) {
     _ = VERBOSITY.set(count);
 }
 
+#[must_use]
 pub fn verbosity() -> u8 {
     *VERBOSITY.get().unwrap_or(&0)
 }

@@ -72,6 +72,7 @@ pub struct NusbFastBoot {
 
 impl NusbFastBoot {
     /// Find fastboot interface within a USB device
+    #[must_use]
     pub fn find_fastboot_interface(info: &DeviceInfo) -> Option<u8> {
         info.interfaces().find_map(|i| {
             if i.class() == 0xff && i.subclass() == 0x42 && i.protocol() == 0x3 {
@@ -411,11 +412,13 @@ impl Drop for DataDownload<'_> {
 
 impl DataDownload<'_> {
     /// Total size of the data transfer
+    #[must_use]
     pub fn size(&self) -> u32 {
         self.size
     }
 
     /// Data left to be sent/queued
+    #[must_use]
     pub fn left(&self) -> u32 {
         self.left
     }

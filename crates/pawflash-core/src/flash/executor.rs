@@ -101,6 +101,7 @@ pub struct FlashExecutor<T: FlashTransport = NusbFastBoot> {
 }
 
 impl<T: FlashTransport> FlashExecutor<T> {
+    #[must_use]
     pub const fn new(fb: T, device_vars: HashMap<String, String>) -> Self {
         Self { fb, device_vars }
     }

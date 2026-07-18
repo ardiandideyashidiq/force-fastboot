@@ -19,26 +19,32 @@ fn strip(s: &str) -> String {
     out
 }
 
+#[must_use]
 pub fn warn_colored(msg: impl AsRef<str>) -> String {
     msg.as_ref().yellow().to_string()
 }
 
+#[must_use]
 pub fn error_colored(msg: impl AsRef<str>) -> String {
     msg.as_ref().red().bold().to_string()
 }
 
+#[must_use]
 pub fn dim_colored(msg: impl AsRef<str>) -> String {
     msg.as_ref().dimmed().to_string()
 }
 
+#[must_use]
 pub fn ok_colored(msg: impl AsRef<str>) -> String {
     msg.as_ref().green().to_string()
 }
 
+#[must_use]
 pub fn info_colored(msg: impl AsRef<str>) -> String {
     msg.as_ref().bright_blue().to_string()
 }
 
+#[must_use]
 pub fn heading_colored(msg: impl AsRef<str>) -> String {
     msg.as_ref().white().bold().to_string()
 }

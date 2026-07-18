@@ -11,6 +11,7 @@ const BAUD: u32 = 115_200;
 const POLL_INTERVAL: Duration = Duration::from_millis(250);
 const PORT_TIMEOUT: Duration = Duration::from_millis(250);
 
+#[must_use]
 pub fn serial_ports() -> HashSet<String> {
     let ports = match tokio_serial::available_ports() {
         Ok(ports) => ports,

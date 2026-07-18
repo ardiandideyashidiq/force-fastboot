@@ -93,6 +93,7 @@ impl FileHeader {
     }
 
     /// Convert into a raw header
+    #[must_use]
     pub fn to_bytes(&self) -> FileHeaderBytes {
         let mut bytes = [0; FILE_HEADER_BYTES_LEN];
         let mut w = &mut bytes[..];
@@ -110,6 +111,7 @@ impl FileHeader {
         bytes
     }
 
+    #[must_use]
     pub fn total_size(&self) -> usize {
         self.blocks as usize * self.block_size as usize
     }
@@ -146,6 +148,7 @@ pub struct ChunkHeader {
 
 impl ChunkHeader {
     /// Create a don't care header for a given length in blocks
+    #[must_use]
     pub fn new_dontcare(blocks: u32) -> Self {
         ChunkHeader {
             chunk_type: ChunkType::DontCare,
@@ -157,6 +160,7 @@ impl ChunkHeader {
     /// Create a new raw header for a given amount in blocks for block_size
     ///
     /// The actual data should follow this header
+    #[must_use]
     pub fn new_raw(blocks: u32, block_size: u32) -> Self {
         ChunkHeader {
             chunk_type: ChunkType::Raw,
@@ -169,6 +173,7 @@ impl ChunkHeader {
     /// Create a new fill header for a given amount of blocks to be filled
     ///
     /// The header should be followed by 4 bytes indicate the data to fill with
+    #[must_use]
     pub fn new_fill(blocks: u32) -> Self {
         ChunkHeader {
             chunk_type: ChunkType::Fill,
@@ -198,6 +203,7 @@ impl ChunkHeader {
     }
 
     /// Convert into a raw header
+    #[must_use]
     pub fn to_bytes(&self) -> ChunkHeaderBytes {
         let mut bytes = [0; CHUNK_HEADER_BYTES_LEN];
         let mut w = &mut bytes[..];
@@ -209,11 +215,13 @@ impl ChunkHeader {
     }
 
     /// Resulting size of this chunk in the output
+    #[must_use]
     pub fn out_size(&self, header: &FileHeader) -> usize {
         self.chunk_size as usize * header.block_size as usize
     }
 
     /// Data bytes after the header
+    #[must_use]
     pub fn data_size(&self) -> usize {
         (self.total_size as usize).saturating_sub(CHUNK_HEADER_BYTES_LEN)
     }
