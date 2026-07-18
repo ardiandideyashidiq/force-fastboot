@@ -1,5 +1,6 @@
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use tempfile::TempDir;
 use tracing::debug;
@@ -73,42 +74,45 @@ mod embedded {
     ));
 }
 
-// ── Extraction ───────────────────────────────────────────────────────
+// ── Extraction (cached) ──────────────────────────────────────────────
 
-/// Extract embedded format-tools to a temporary directory.
-/// Returns the `TempDir` (keeps the dir alive) and the path to the tool root.
-/// Extract embedded format-tools to a temporary directory.
+static TOOLS_ROOT: OnceLock<io::Result<PathBuf>> = OnceLock::new();
+
+/// Extract embedded format-tools to a temporary directory (cached).
 ///
 /// # Errors
 ///
 /// Returns an error if the temporary directory cannot be created or
 /// any embedded binary cannot be written to disk.
-pub fn extract_format_tools() -> io::Result<(TempDir, PathBuf)> {
-    let dir = TempDir::new()?;
-    let root = dir.path().to_path_buf();
+pub fn extract_format_tools() -> &'static io::Result<PathBuf> {
+    TOOLS_ROOT.get_or_init(|| {
+        let dir = TempDir::new()?;
+        let root = dir.path().to_path_buf();
 
-    let write_file = |name: &str, data: &[u8]| -> io::Result<()> {
-        let path = root.join(name);
-        std::fs::write(&path, data)?;
-        #[cfg(unix)]
-        std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o755))?;
-        Ok(())
-    };
+        let write_file = |name: &str, data: &[u8]| -> io::Result<()> {
+            let path = root.join(name);
+            std::fs::write(&path, data)?;
+            #[cfg(unix)]
+            std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o755))?;
+            Ok(())
+        };
 
-    write_file("mke2fs", embedded::MKE2FS)?;
-    write_file("make_f2fs", embedded::MAKE_F2FS)?;
-    write_file("make_f2fs_casefold", embedded::MAKE_F2FS_CASEFOLD)?;
-    write_file("mke2fs.conf", embedded::MKE2FS_CONF)?;
+        write_file("mke2fs", embedded::MKE2FS)?;
+        write_file("make_f2fs", embedded::MAKE_F2FS)?;
+        write_file("make_f2fs_casefold", embedded::MAKE_F2FS_CASEFOLD)?;
+        write_file("mke2fs.conf", embedded::MKE2FS_CONF)?;
 
-    #[cfg(target_os = "linux")]
-    {
-        let lib64 = root.join("lib64");
-        std::fs::create_dir_all(&lib64)?;
-        std::fs::write(lib64.join("libc++.so"), embedded::LIBCPP_SO)?;
-    }
+        #[cfg(target_os = "linux")]
+        {
+            let lib64 = root.join("lib64");
+            std::fs::create_dir_all(&lib64)?;
+            std::fs::write(lib64.join("libc++.so"), embedded::LIBCPP_SO)?;
+        }
 
-    debug!(path = %root.display(), "format-tools extracted");
-    Ok((dir, root))
+        debug!(path = %root.display(), "format-tools extracted");
+        std::mem::forget(dir);
+        Ok(root)
+    })
 }
 
 // ── Filesystem image generation ──────────────────────────────────────

@@ -259,8 +259,10 @@ pub async fn execute_gsi_flash(
 
     report(GsiEvent::ModeDetected(mode));
 
-    let (tools_dir, tools_root) = generator::extract_format_tools()
-        .map_err(|e| GsiError::FormatTools(format!("{e}")))?;
+    let tools_root = generator::extract_format_tools()
+        .as_ref()
+        .map_err(|e| GsiError::FormatTools(format!("{e}")))?
+        .clone();
 
     for (required_mode, stages) in plan_stage_groups(mode) {
         if detect_fastboot_mode(executor.device_vars()) != required_mode {
@@ -307,7 +309,6 @@ pub async fn execute_gsi_flash(
         }
     }
 
-    drop(tools_dir);
     report(GsiEvent::Step(GsiStep::GsiFlowComplete));
     drop(report);
 

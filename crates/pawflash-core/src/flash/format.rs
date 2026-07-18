@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 use crate::flash::error::FlashError;
 use crate::flash::executor::FlashExecutor;
@@ -76,14 +76,9 @@ impl<T: FlashTransport> FlashExecutor<T> {
 
         info!(partitions = ?partitions, clean_test, "starting format-data");
 
-        let (_tools, tools_dir) = match generator::extract_format_tools() {
-            Ok(pair) => pair,
-            Err(e) => {
-                let reason = format!("failed to extract format tools: {e}");
-                error!(%reason);
-                return Err(FlashError::GeneratorFailed { reason });
-            }
-        };
+        let tools_dir = generator::extract_format_tools()
+            .as_ref()
+            .map_err(|e| FlashError::GeneratorFailed { reason: format!("{e}") })?;
 
         let max_download = crate::flash::executor::parse_max_download(&mut self.fb)
             .await
@@ -118,7 +113,7 @@ impl<T: FlashTransport> FlashExecutor<T> {
                 max_download,
                 erase_blk,
                 logical_blk,
-                tools_dir: &tools_dir,
+                tools_dir,
                 clean_test,
             };
 
