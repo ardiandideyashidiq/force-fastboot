@@ -95,7 +95,7 @@ The Rust `ProgressEvent` enum uses `#[serde(tag = "event", content = "data")]`, 
 - Push to `main` → `.github/workflows/release.yml` (check + build + release).
 - Linux: `x86_64-unknown-linux-gnu`, Windows: `x86_64-pc-windows-msvc`.
 - Timestamped release tag `release-YYYYMMDD-HHMMSS`, changelog from git log.
-- Binary name: `force-fastboot-linux` / `force-fastboot-windows.exe`.
+- Binary name: `pawflash-linux` / `pawflash-windows.exe`.
 - Linux build dep: `libudev-dev` (for nusb USB enumeration).
 
 ## Vendored deps

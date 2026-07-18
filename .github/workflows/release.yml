@@ -41,10 +41,10 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            artifact_name: force-fastboot-linux
+            artifact_name: pawflash-linux
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            artifact_name: force-fastboot-windows.exe
+            artifact_name: pawflash-windows.exe
 
     runs-on: ${{ matrix.os }}
 
@@ -101,6 +101,6 @@ jobs:
           name: ${{ steps.tag.outputs.TAG }}
           body_path: changelog.txt
           files: |
-            force-fastboot-linux/force-fastboot-linux
-            force-fastboot-windows.exe/force-fastboot-windows.exe
+            pawflash-linux/pawflash-linux
+            pawflash-windows.exe/pawflash-windows.exe
           fail_on_unmatched_files: true
