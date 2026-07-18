@@ -1,3 +1,6 @@
+//! Tauri v2 desktop app for pawflash — exposes core flashing operations as
+//! IPC commands with progress reporting via `Channel<ProgressEvent>`.
+
 use std::collections::HashMap;
 use std::path::Path;
 
