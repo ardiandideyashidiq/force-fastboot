@@ -423,6 +423,9 @@ fn do_scan_impl(
                 std::io::ErrorKind::InvalidData,
                 format!("seek offset {offset:#x} exceeds i64 range"),
             )))?;
+        // SAFETY: `fd` is a valid file descriptor from `AsRawFd` on a real file.
+        // `lseek` with SEEK_DATA is safe per POSIX; we check for -1 return which
+        // covers both errors (checked via errno/ENXIO) and absence of data.
         let data_start = match unsafe { libc::lseek(fd, seek_offset, libc::SEEK_DATA) } {
             -1 => {
                 let err = std::io::Error::last_os_error();
@@ -451,6 +454,7 @@ fn do_scan_impl(
                 std::io::ErrorKind::InvalidData,
                 format!("hole seek offset {aligned:#x} exceeds i64 range"),
             )))?;
+        // SAFETY: same fd as above; SEEK_HOLE after a data region is valid per POSIX.
         let hole_start =
             match unsafe { libc::lseek(fd, hole_seek, libc::SEEK_HOLE) } {
                 -1 => {
@@ -481,8 +485,8 @@ fn do_scan_impl(
 
 #[cfg(not(unix))]
 fn is_all_zero(buf: &[u8]) -> bool {
-    let (prefix, chunks, suffix) = unsafe { buf.align_to::<u128>() };
-    chunks.iter().all(|&w| w == 0) && prefix.iter().all(|&b| b == 0) && suffix.iter().all(|&b| b == 0)
+    buf.chunks_exact(16).all(|c| c.iter().all(|&b| b == 0))
+        && buf.iter().rev().take(buf.len() % 16).all(|&b| b == 0)
 }
 
 #[cfg(not(unix))]
