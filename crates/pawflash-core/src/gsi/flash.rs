@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
 use android_sparse_image::{FileHeader, FILE_HEADER_BYTES_LEN};
-use anyhow::{bail, Context, Result};
+use crate::gsi::error::{GsiError, Result};
 use tempfile::TempDir;
 use tokio::io::AsyncReadExt;
 use tokio::time::Duration;
@@ -47,13 +47,13 @@ const fn product_gsi_overflow_size(system_partition_size: u64, gsi_expanded_size
 async fn read_gsi_expanded_size(image: &Path) -> Result<u64> {
     let is_sparse = crate::flash::sparse::is_sparse_image(image)
         .await
-        .with_context(|| format!("failed to check if {} is a sparse image", image.display()))?;
+        .map_err(|e| GsiError::ImageCheck(format!("failed to check if {} is a sparse image: {e}", image.display())))?;
     if is_sparse {
         let mut file = tokio::fs::File::open(image).await?;
         let mut header_bytes = [0u8; FILE_HEADER_BYTES_LEN];
         file.read_exact(&mut header_bytes).await?;
         let header = FileHeader::from_bytes(&header_bytes)
-            .map_err(|_| anyhow::anyhow!("failed to parse sparse file header"))?;
+            .map_err(|_| GsiError::SparseHeader("failed to parse sparse file header".into()))?;
         Ok(u64::from(header.blocks) * u64::from(header.block_size))
     } else {
         Ok(tokio::fs::metadata(image).await?.len())
@@ -86,7 +86,7 @@ async fn resolve_system_partition<T: FlashTransport>(executor: &mut FlashExecuto
             }
         }
     }
-    bail!("neither system_{slot} nor system found in device partitions");
+    Err(GsiError::PartitionResolution(format!("neither system_{slot} nor system found in device partitions")))
 }
 
 fn generate_product_gsi_image(tools_dir: &Path) -> Result<(TempDir, std::path::PathBuf)> {
@@ -110,11 +110,10 @@ fn generate_product_gsi_image(tools_dir: &Path) -> Result<(TempDir, std::path::P
         .arg(PRODUCT_GSI_UUID)
         .arg(&output)
         .arg(blocks.to_string())
-        .status()
-        .with_context(|| "failed to spawn mke2fs for product_gsi")?;
+        .status()?;
 
     if !status.success() {
-        bail!("mke2fs for product_gsi failed with status {status}");
+        return Err(GsiError::FormatTools(format!("mke2fs for product_gsi failed with status {status}")));
     }
 
     Ok((dir, output))
@@ -147,8 +146,7 @@ async fn transition_mode(
 
         let new_exec = executor
             .reboot_and_wait(boot_target)
-            .await
-            .with_context(|| format!("failed to transition to {}", target.as_str()))?;
+            .await?;
 
         if detect_fastboot_mode(new_exec.device_vars()) == target {
             report(GsiEvent::ModeReady(target));
@@ -158,7 +156,7 @@ async fn transition_mode(
         if attempt == 0 {
             executor = FlashExecutor::wait_for_device(Duration::from_secs(30)).await?;
         } else {
-            bail!("device did not switch to {} after retry", target.as_str());
+            return Err(GsiError::PartitionResolution(format!("device did not switch to {} after retry", target.as_str())));
         }
     }
 
@@ -230,7 +228,7 @@ fn plan_stage_groups(mode: FastbootMode) -> Vec<(FastbootMode, Vec<GsiStage>)> {
 fn check_cancelled(cancel_token: Option<&Arc<AtomicBool>>) -> Result<()> {
     if let Some(token) = cancel_token {
         if token.load(std::sync::atomic::Ordering::Relaxed) {
-            anyhow::bail!("GSI flash cancelled by user");
+            return Err(GsiError::Cancelled);
         }
     }
     Ok(())
@@ -264,9 +262,7 @@ pub async fn execute_gsi_flash(
     let vars = executor.device_vars().clone();
     let mode = detect_fastboot_mode(&vars);
 
-    let gsi_expanded_size = read_gsi_expanded_size(image)
-        .await
-        .with_context(|| format!("cannot determine expanded size of {}", image.display()))?;
+    let gsi_expanded_size = read_gsi_expanded_size(image).await?;
 
     let counters = GsiCounters::new();
     let mut report = make_reporter(&counters, &mut user_report);
@@ -274,7 +270,7 @@ pub async fn execute_gsi_flash(
     report(GsiEvent::ModeDetected(mode));
 
     let (tools_dir, tools_root) = generator::extract_format_tools()
-        .map_err(|e| anyhow::anyhow!("failed to extract format tools: {e}"))?;
+        .map_err(|e| GsiError::FormatTools(format!("{e}")))?;
 
     for (required_mode, stages) in plan_stage_groups(mode) {
         if detect_fastboot_mode(executor.device_vars()) != required_mode {
