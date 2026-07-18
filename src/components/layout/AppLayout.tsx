@@ -106,7 +106,7 @@ export default function AppLayout({
         </div>
 
         {/* Nav */}
-        <nav className="flex flex-col gap-1 px-3 mt-2 shrink-0">
+        <nav className="flex flex-col gap-1.5 px-3 mt-2 shrink-0">
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = tab === item.id;
@@ -114,12 +114,12 @@ export default function AppLayout({
               <Button
                 key={item.id}
                 variant="ghost"
-                size={sidebarOpen ? "default" : "icon-sm"}
+                size={sidebarOpen ? "lg" : "icon-lg"}
                 className={
-                  "relative after:absolute after:left-0 after:top-1/2 after:-translate-y-1/2 after:h-4 after:w-0.5 after:rounded-full after:transition-opacity after:duration-200 " +
+                  "h-12 border border-border/50 hover:border-border/80 " +
                   (isActive
-                    ? "bg-trace-copper/10 text-trace-copper after:bg-trace-copper after:opacity-100"
-                    : "text-muted-foreground hover:text-foreground hover:bg-muted/40 after:opacity-0")
+                    ? "bg-trace-copper/15 text-trace-copper border-trace-copper/60"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted/40")
                 }
                 onClick={() => setTab(item.id)}
               >
