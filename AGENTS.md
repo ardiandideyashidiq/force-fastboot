@@ -3,110 +3,104 @@
 ## Commands
 
 ```sh
-# Build CLI (debug)
-cargo build -p pawflash-cli
+# Rust
+cargo build -p pawflash-core          # core lib only
+cargo build -p pawflash-cli           # CLI binary (debug)
+cargo build --release -p pawflash-cli # matches CI
+cargo build -p pawflash-tauri         # Tauri app (Rust side)
+cargo test --workspace                # all tests
+cargo test -p pawflash-core <name>    # single test, e.g. parse_int_should_accept_decimal
+cargo clippy --all-targets --all-features --locked -- -D warnings  # aggressive
 
-# Build CLI (release) — matches CI
-cargo build --release -p pawflash-cli
-
-# Build Tauri (dev)
-cargo build -p pawflash-tauri
-
-# Build core lib only
-cargo build -p pawflash-core
-
-# Run all tests
-cargo test --workspace
-
-# Run a single test
-cargo test -p pawflash-core <test_name>  # e.g. cargo test parse_int_should_accept_decimal
-
-# Lint frontend (eslint)
-pnpm lint
-
-# Type-check frontend (tsc — no emit)
-pnpm lint:tsc
-
-# Lint Rust (aggressive — project may not pass cleanly)
-cargo clippy --all-targets --all-features --locked -- -D warnings
-
-# Run Tauri dev server (requires frontend)
-pnpm tauri dev
+# Frontend (pnpm, never npm)
+pnpm lint                             # eslint
+pnpm lint:tsc                         # tsc --noEmit
+pnpm build                            # tsc && vite build (runs BEFORE tauri build)
+pnpm tauri dev                        # Tauri dev server (starts Vite + Rust)
 ```
+
+**Build order matters:** `pnpm build` must pass before `cargo build -p pawflash-tauri` succeeds.
 
 ## Project structure
 
 ```
-force-fastboot/
-├── Cargo.toml                  → workspace manifest
+pawflash/
+├── Cargo.toml                  → workspace: pawflash-core, pawflash-cli, src-tauri
 ├── crates/
-│   ├── pawflash-core/          → domain logic: flash, force_fastboot, scatter_parser, format, gsi, output
-│   └── pawflash-cli/           → CLI binary (clap) — thin dispatch into pawflash-core
-├── src-tauri/                  → Tauri desktop app (React frontend to be added)
-│   ├── src/main.rs             → thin passthrough
-│   ├── src/lib.rs              → Tauri builder + commands wrapping pawflash-core
-│   ├── tauri.conf.json
-│   └── capabilities/default.json
-├── src/                        → React frontend (to be created)
-└── vendor/                     → vendored fastboot-rs fork + format tools
-```
-- Vendored deps: `vendor/fastboot-rs/` — fork of `boardswarm/fastboot-rs` with extra commands + edition 2024
-- Bundled format tools: `vendor/format-tools/` — prebuilt `mke2fs` + `make_f2fs` binaries (AOSP) for `format-data`, embedded via `include_bytes!`
-- All tests are in-module `#[cfg(test)]`; no integration tests under `tests/`
-- No generated code, no migrations, no codegen steps
-
-## Debugging rule
-
-- **Never guess root cause.** Always add debug logging first (via vendored tracing or a `diagnose_*` helper), run the failing command, and read the output to determine the actual failure.
-
-## Code style
-
-- **Zero warning suppressions.** Never add `#[allow(...)]` or `#[expect(...)]`. Fix the underlying issue instead — add missing docs, extract helpers, use `try_from` for casts, group bools into enums, etc.
-- **Modular code required.** Keep files focused and under ~400 lines. If a file grows beyond that, split it into a directory module with submodules — each submodule gets one clear responsibility.
-- No `pub(crate)` helper functions living in type-definition files. Extract shared helpers into their own module (e.g. `scatter_parser/util.rs`).
-- When splitting, use `sort` in the directory listing above to show submodules in order.
-- **Structured logging required.** Always use `tracing` with fields (`info!(field = value, "msg")`), never format strings in log calls. Pass values as fields, not in the message string.
-- **User-facing output.** Never use raw `println!`/`eprintln!`. Use `output::status::*` helpers:
-  - `data(...)` — command output (tables, JSON, device info) to stdout
-  - `ok(label, detail)` / `warn(label, detail)` / `fail(label, detail)` — status lines via indicatif/tracing
-  - `dim(msg)` — neutral status message
-  - `heading(msg)` / `blank()` — section structure
-  - `stderr(msg)` — error blocks to stderr
-  - All helpers also emit `tracing` when `-v` is active.
-
-## Notable config
-
-- **Rust edition 2024**, MSRV 1.85 (pawflash + both vendored crates)
-- **Async runtime**: tokio (full features) — all `main.rs` entry points, USB, serial
-- **Release profile**: LTO (thin), `panic = "abort"`, `overflow-checks = false`, `debug = 0`
-- **Clippy lints**: `all`+`pedantic`+`perf` = warn, several individual = deny (`cast_lossless`, `doc_markdown`, `large_enum_variant`, `missing_const_for_fn`, `needless_pass_by_value`, `redundant_clone`, `cargo_common_metadata`)
-- **Linux build dep**: `libudev-dev` (for `nusb` USB enumeration)
-
-### vendored fastboot-rs (fork-specific)
-
-- `FastBootCommand::Flashing(S)` — formats as `"flashing {0}"` (lock, unlock, lock_critical, etc.)
-- `FastBootCommand::SetActive(S)` — formats as `"set_active:{0}"` (a, b)
-- `NusbFastBoot::flashing(cmd)` / `NusbFastBoot::set_active(slot)` — public methods
-- Bugfix: `Verify` variant formats as `"verify:"` not `"verity:"`
-
-## CLI usage
-
-```
-pawflash force-fastboot [-v]
-pawflash scatter parse <scatter-path> [--full-json]
-pawflash scatter plan <scatter-path> [--json] [--mode dry-run|selective|dirty-flash] [--storage auto|all|ufs|emmc] [--part ...] [--group ...] [--firmware-dir ...] [--check-images] [--include-preloader]
-pawflash flash <scatter-path> [--mode selective|dirty-flash] [--storage auto|all|ufs|emmc] [--part ...] [--group ...] [--firmware-dir ...] [--check-images] [--include-preloader] [--dry-run] [-v]
-pawflash format-data [-v] [--fs-options casefold,projid,compress]
-pawflash device info
-pawflash device reboot [system|bootloader|fastbootd|recovery]
-pawflash device lock|unlock
-pawflash device set-active <a|b>
-pawflash device get-var <var-name>
+│   └── pawflash-core/          → domain logic: flash/, force_fastboot/, scatter_parser/,
+│                                  format/, gsi/, output/
+├── src-tauri/                  → Tauri v2 Rust backend
+│   ├── src/lib.rs              → commands wrapping pawflash-core, ProgressEvent enum
+│   └── tauri.conf.json         → devUrl localhost:1420, frontendDist ../dist
+├── src/                        → React 19 + Tailwind v4 frontend
+│   ├── components/
+│   │   ├── console/            → ConsolePanel + ConsoleContext (live progress output)
+│   │   ├── layout/             → AppLayout (sidebar nav + console grid)
+│   │   ├── tabs/               → MainTab, ToolsTab, SettingsTab (lazy-loaded)
+│   │   └── ui/                 → shadcn/base-ui components (button, select, dialog, etc.)
+│   ├── hooks/                  → useConsole, useTauriEvent
+│   ├── types/                  → api.ts (DeviceInfo, ScatterFile), progress.ts (ProgressEvent)
+│   └── index.css              → Tailwind v4 + CSS custom properties (copper palette)
+└── vendor/
+    ├── fastboot-rs/            → fork of boardswarm/fastboot-rs, edition 2024
+    └── format-tools/           → prebuilt mke2fs + make_f2fs (AOSP), embedded via include_bytes!
 ```
 
-## CI release
+## Framework & styling
 
-- Push to `main` triggers `.github/workflows/release.yml`
-- Builds Linux (`x86_64-unknown-linux-gnu`) and Windows (`x86_64-pc-windows-msvc`)
-- Creates a timestamped GitHub release (`release-YYYYMMDD-HHMMSS`) with changelog
-- Release binary name: `force-fastboot-linux` / `force-fastboot-windows.exe`
+- **Tailwind v4** — uses `@theme` / `@theme inline` for tokens, NOT `tailwind.config.ts`
+  - Static colors in `@theme`, theme-aware ones in `@theme inline` mapping CSS vars
+  - Custom fonts via `@font-face` in index.css (Inter Variable, DM Mono, JetBrains Mono)
+- **shadcn/ui style `base-nova`** — components use `@base-ui/react` (NOT Radix), styled via Tailwind + CVA
+- **Class merging:** `cn()` from `@/lib/utils` (clsx + tailwind-merge) — always wrap className with it
+- **Icons:** `lucide-react`
+- **Toasts:** `sonner` (`<Toaster richColors />` in App.tsx)
+- **Theming:** `.dark` class on `<html>`, CSS variables in `:root`/`.dark`, toggle via `localStorage("app-theme")`
+
+## Critical Tauri wiring (easy to miss)
+
+Rust commands that accept `on_event: Channel<ProgressEvent>` MUST receive a frontend-created channel:
+
+```typescript
+import { Channel } from "@tauri-apps/api/core";
+const channel = new Channel<ProgressEvent>();
+channel.onmessage = (event) => addProgressEvent(event);
+await invoke("force_fastboot", { onEvent: channel });
+```
+
+Commands that need channels: `force_fastboot`, `disable_vbmeta`, `format_data`, `execute_plan`, `flash_gsi`, `flash_raw_image`. Omitting them causes silent runtime errors.
+
+The Rust `ProgressEvent` enum uses `#[serde(tag = "event", content = "data")]`, so the TS type is a discriminated union: `{ event: "Phase", data: { phase, message } }` etc. Mirrored in `src/types/progress.ts`.
+
+## React 19 quirks
+
+- Hooks purity is strictly enforced by eslint (`react-hooks/purity`, `react-hooks/refs`).
+  - `useRef(Date.now())` is flagged — use `useState(() => Date.now())` instead.
+  - Reading/writing `ref.current` during render is forbidden — do it inside callbacks only.
+- `react-refresh/only-export-components` — move named exports of hooks into separate files.
+- `React.lazy()` + `<Suspense>` for tab components (MainTab, ToolsTab, SettingsTab).
+
+## Code style (Rust)
+
+- Zero `#[allow]`/`#[expect]` — fix the underlying issue.
+- Max ~400 lines per file; split into directory modules with submodules.
+- No `pub(crate)` helpers in type-definition files — extract to own module (e.g. `scatter_parser/util.rs`).
+- Structured `tracing` with fields, never format strings in log calls: `info!(field = value, "msg")`.
+- CLI output via `output::status::*` helpers (`data()`, `ok()`/`warn()`/`fail()`, `dim()`, `heading()`, `blank()`, `stderr()`), never raw `println!`/`eprintln!`.
+- Rust edition 2024, MSRV 1.85. Tokio (full features). Release: LTO (thin), panic=abort.
+- Clippy: `all`+`pedantic`+`perf` = warn, several = deny (see Cargo.toml `[workspace.lints.clippy]`).
+
+## CI & release
+
+- Push to `main` → `.github/workflows/release.yml` (check + build + release).
+- Linux: `x86_64-unknown-linux-gnu`, Windows: `x86_64-pc-windows-msvc`.
+- Timestamped release tag `release-YYYYMMDD-HHMMSS`, changelog from git log.
+- Binary name: `force-fastboot-linux` / `force-fastboot-windows.exe`.
+- Linux build dep: `libudev-dev` (for nusb USB enumeration).
+
+## Vendored deps
+
+- `vendor/fastboot-rs/` — fork-specific: `FastBootCommand::Flashing(s)` formats as `"flashing {0}"`, `SetActive(s)` as `"set_active:{0}"`. Bugfix: `Verify` formats as `"verify:"` not `"verity:"`.
+- `vendor/format-tools/` — prebuilt mke2fs + make_f2fs, embedded at compile time.
+- No generated code, no migrations, no codegen steps.
+- All tests in-module (`#[cfg(test)]`), no `tests/` integration test directory.
