@@ -163,16 +163,7 @@ async fn reboot_device(target: String) -> Result<(), String> {
     warn!(error = %e, "connect failed");
     e.to_string()
   })?;
-  let boot_target = match target.as_str() {
-    "system" => BootTarget::System,
-    "bootloader" => BootTarget::Bootloader,
-    "fastbootd" | "fastboot" => BootTarget::Fastboot,
-    "recovery" => BootTarget::Recovery,
-    _ => {
-      warn!(%target, "unknown reboot target");
-      return Err(format!("unknown target '{target}'"));
-    }
-  };
+  let boot_target: BootTarget = target.parse().map_err(|e: String| e)?;
   info!(?boot_target, "rebooting");
   executor.reboot_to(boot_target).await.map_err(|e| {
     warn!(?boot_target, error = %e, "reboot failed");

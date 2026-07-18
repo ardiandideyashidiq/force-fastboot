@@ -80,6 +80,20 @@ impl fmt::Display for BootTarget {
     }
 }
 
+impl std::str::FromStr for BootTarget {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s {
+            "system" => Ok(Self::System),
+            "bootloader" => Ok(Self::Bootloader),
+            "fastbootd" | "fastboot" => Ok(Self::Fastboot),
+            "recovery" => Ok(Self::Recovery),
+            _ => Err(format!("unknown reboot target '{s}'")),
+        }
+    }
+}
+
 /// Fastboot flash executor.
 pub struct FlashExecutor<T: FlashTransport = NusbFastBoot> {
     pub(crate) fb: T,

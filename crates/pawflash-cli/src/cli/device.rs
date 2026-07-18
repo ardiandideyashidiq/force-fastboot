@@ -23,13 +23,7 @@ pub async fn run(action: DeviceAction) -> Result<()> {
         }
         DeviceAction::Reboot { target } => {
             info!(%target, "rebooting device");
-            let boot_target = match target.as_str() {
-                "system" => BootTarget::System,
-                "bootloader" => BootTarget::Bootloader,
-                "fastbootd" | "fastboot" => BootTarget::Fastboot,
-                "recovery" => BootTarget::Recovery,
-                _ => anyhow::bail!("unknown reboot target '{target}': expected system, bootloader, fastbootd, or recovery"),
-            };
+            let boot_target: BootTarget = target.parse().map_err(|e: String| anyhow::anyhow!(e))?;
             executor.reboot_to(boot_target).await?;
         }
         DeviceAction::Lock => {
