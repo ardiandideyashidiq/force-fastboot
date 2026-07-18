@@ -92,15 +92,16 @@ The Rust `ProgressEvent` enum uses `#[serde(tag = "event", content = "data")]`, 
 
 ## CI & release
 
-Two workflows:
+Two workflows, both 2-phase (matrix build → single release):
 
-- **`release.yml`** — CLI only, every push to `main`. Fast (~2 min). Builds `pawflash-cli` for linux + windows, creates timestamped release.
-- **`release-gui.yml`** — GUI only, triggers on changes to `src/**`, `src-tauri/**`, `package.json`, or `pnpm-lock.yaml`. Also supports `workflow_dispatch`. Uses `tauri-apps/tauri-action@v1`.
+- **`release.yml`** — CLI only, every push to `main`. Builds `pawflash-cli` for linux + windows, creates timestamped release.
+- **`release-gui.yml`** — GUI only, triggers on changes to `src/**`, `src-tauri/**`, `package.json`, or `pnpm-lock.yaml`. Build matrix (linux + windows) with `tauri-action` (`uploadWorkflowArtifacts: true`, no tagName → build-only), then single `release-gui` job creates one release with both platform bundles.
+
+Shared composite action at `.github/actions/setup/` handles: checkout, Rust toolchain + cache, apt caching, apt deps install (per profile), and pnpm/Node setup for GUI.
 
 Linux: `x86_64-unknown-linux-gnu`, Windows: `x86_64-pc-windows-msvc`.
-Release tag format: `release-YYYYMMDD-HHMMSS`.
+Release tag format: `release-YYYYMMDD-HHMMSS`, `gui-release-YYYYMMDD-HHMMSS`.
 Linux build dep: `libudev-dev` (CLI) or `libwebkit2gtk-4.1-dev` + `patchelf` (GUI).
-- Linux build dep: `libudev-dev` (for nusb USB enumeration).
 
 ## Vendored deps
 

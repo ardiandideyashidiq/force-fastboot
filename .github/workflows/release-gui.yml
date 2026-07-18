@@ -33,26 +33,50 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
+      - uses: actions/checkout@v4
+
       - uses: ./.github/actions/setup
         with:
           deps: gui
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - name: Set timestamp tag
-        id: tag
-        run: echo "TAG=gui-release-$(date -u +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
 
       - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ steps.tag.outputs.TAG }}
-          releaseName: 'pawflash GUI ${{ steps.tag.outputs.TAG }}'
+          uploadWorkflowArtifacts: true
+
+  release-gui:
+    needs: [build-gui]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set timestamp tag
+        id: tag
+        run: echo "TAG=gui-release-$(date -u +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
+
+      - name: Generate changelog
+        run: |
+          prev=$(git describe --tags --abbrev=0 2>/dev/null || git rev-list --max-parents=0 HEAD)
+          {
+            echo "## Changes since $prev"
+            echo ""
+            git log --oneline --no-decorate "$prev"..HEAD
+          } > changelog.txt
+
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.tag.outputs.TAG }}
+          name: pawflash GUI ${{ steps.tag.outputs.TAG }}
+          body_path: changelog.txt
+          files: ./*
+          fail_on_unmatched_files: false
