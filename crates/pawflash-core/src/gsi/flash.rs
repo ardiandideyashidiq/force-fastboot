@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use android_sparse_image::{FileHeader, FILE_HEADER_BYTES_LEN};
@@ -166,40 +166,30 @@ async fn transition_mode(
 // ── GSI stage machine ────────────────────────────────────────────────
 
 struct GsiCounters {
-    flash_count: AtomicU64,
-    wipe_count: AtomicU64,
-    skipped_count: AtomicU64,
-    total_bytes: AtomicU64,
+    flash_count: u64,
+    wipe_count: u64,
+    skipped_count: u64,
+    total_bytes: u64,
 }
 
 impl GsiCounters {
     const fn new() -> Self {
-        Self {
-            flash_count: AtomicU64::new(0),
-            wipe_count: AtomicU64::new(0),
-            skipped_count: AtomicU64::new(0),
-            total_bytes: AtomicU64::new(0),
-        }
+        Self { flash_count: 0, wipe_count: 0, skipped_count: 0, total_bytes: 0 }
     }
 }
 
 fn make_reporter<'a>(
-    counters: &'a GsiCounters,
+    counters: &'a mut GsiCounters,
     inner: &'a mut impl FnMut(GsiEvent),
 ) -> impl FnMut(GsiEvent) + 'a {
-    let GsiCounters { ref flash_count, ref wipe_count, ref skipped_count, ref total_bytes } = *counters;
     |event: GsiEvent| {
         match &event {
             GsiEvent::Flashing { size_bytes, .. } => {
-                flash_count.fetch_add(1, Ordering::Relaxed);
-                total_bytes.fetch_add(*size_bytes, Ordering::Relaxed);
+                counters.flash_count += 1;
+                counters.total_bytes += size_bytes;
             }
-            GsiEvent::Wiping { .. } => {
-                wipe_count.fetch_add(1, Ordering::Relaxed);
-            }
-            GsiEvent::PartitionSkipped { .. } => {
-                skipped_count.fetch_add(1, Ordering::Relaxed);
-            }
+            GsiEvent::Wiping { .. } => counters.wipe_count += 1,
+            GsiEvent::PartitionSkipped { .. } => counters.skipped_count += 1,
             _ => {}
         }
         inner(event);
@@ -264,8 +254,8 @@ pub async fn execute_gsi_flash(
 
     let gsi_expanded_size = read_gsi_expanded_size(image).await?;
 
-    let counters = GsiCounters::new();
-    let mut report = make_reporter(&counters, &mut user_report);
+    let mut counters = GsiCounters::new();
+    let mut report = make_reporter(&mut counters, &mut user_report);
 
     report(GsiEvent::ModeDetected(mode));
 
@@ -319,16 +309,17 @@ pub async fn execute_gsi_flash(
 
     drop(tools_dir);
     report(GsiEvent::Step(GsiStep::GsiFlowComplete));
+    drop(report);
 
     info!("rebooting to system");
     executor.reboot().await?;
 
     Ok(GsiFlashOutcome {
         summary: GsiFlashSummary {
-            flash_count: usize::try_from(counters.flash_count.load(Ordering::Relaxed)).expect("flash count fits usize"),
-            wipe_count: usize::try_from(counters.wipe_count.load(Ordering::Relaxed)).expect("wipe count fits usize"),
-            skipped_count: usize::try_from(counters.skipped_count.load(Ordering::Relaxed)).expect("skipped count fits usize"),
-            total_bytes: counters.total_bytes.load(Ordering::Relaxed),
+            flash_count: usize::try_from(counters.flash_count).expect("flash count fits usize"),
+            wipe_count: usize::try_from(counters.wipe_count).expect("wipe count fits usize"),
+            skipped_count: usize::try_from(counters.skipped_count).expect("skipped count fits usize"),
+            total_bytes: counters.total_bytes,
         },
     })
 }
