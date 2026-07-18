@@ -2,7 +2,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use tempfile::TempDir;
-use tracing::{debug, warn};
+use tracing::debug;
 
 use crate::flash::error::FlashError;
 use crate::flash::error::Result;
@@ -150,7 +150,7 @@ fn apply_tool_env(cmd: &mut tokio::process::Command, tools_dir: &Path) {
                 match std::env::join_paths(paths) {
                     Ok(p) => p,
                     Err(e) => {
-                        warn!(%e, "failed to join LD_LIBRARY_PATH with tool dir");
+                        tracing::warn!(%e, "failed to join LD_LIBRARY_PATH with tool dir");
                         existing
                     }
                 }

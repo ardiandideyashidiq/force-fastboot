@@ -6,6 +6,8 @@ license = "MIT OR Apache-2.0"
 description = "Low-level Android sparse image parsing headers"
 readme = "README.md"
 repository = "https://github.com/boardswarm/fastboot-rs"
+keywords = ["android", "sparse", "image"]
+categories = ["embedded"]
 edition = "2024"
 rust-version = "1.85"
 

@@ -1,10 +1,15 @@
 //! Linux udev rule management and group-adding for MediaTek preloader serial ports.
 
+#[cfg(target_os = "linux")]
 use std::process::Command;
+
+#[cfg(target_os = "linux")]
 use tracing::warn;
 
+#[cfg(target_os = "linux")]
 const RULE_PATH: &str = "/etc/udev/rules.d/99-mediatek-preloader.rules";
 
+#[cfg(target_os = "linux")]
 const MEDIATEK_UDEV_RULES: &str = r#"# MediaTek Preloader / BROM / Download Agent
 # IDs: 0e8d:2000 preloader, 0e8d:0003 DA/BROM
 
@@ -13,6 +18,7 @@ SUBSYSTEM=="tty", ATTRS{idVendor}=="0e8d", MODE="0666", TAG+="uaccess"
 "#;
 
 /// Return the udev rules content for `MediaTek` devices.
+#[cfg(target_os = "linux")]
 #[must_use]
 pub const fn udev_rules_content() -> &'static str {
     MEDIATEK_UDEV_RULES
@@ -104,7 +110,7 @@ mod platform {
 mod platform {
     /// Non-Linux: no udev to install. Returns `false`.
     pub fn install_udev_rules() -> bool {
-        warn!("udev rule installation is only supported on Linux");
+        tracing::warn!("udev rule installation is only supported on Linux");
         false
     }
 
@@ -119,7 +125,7 @@ pub fn print_manual_guidance() {
     #[cfg(target_os = "linux")]
     {
         let user = std::env::var("USER").unwrap_or_else(|_| "<your-username>".into());
-        warn!(
+        tracing::warn!(
             "Permission denied opening serial port.\n\
              Install udev rules manually:\n\
              sudo tee {RULE_PATH} >/dev/null <<'EOF'\n{MEDIATEK_UDEV_RULES}EOF\n\
@@ -133,7 +139,7 @@ pub fn print_manual_guidance() {
 
     #[cfg(target_os = "windows")]
     {
-        warn!(
+        tracing::warn!(
             "Permission denied opening serial port on Windows.\n\
              Install the WinUSB driver using Zadig (https://zadig.akeo.ie)."
         );
@@ -141,7 +147,7 @@ pub fn print_manual_guidance() {
 
     #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     {
-        warn!(
+        tracing::warn!(
             "Permission denied opening serial port on {}.\n\
              Run the tool as root or fix permissions for the serial device.",
             std::env::consts::OS
