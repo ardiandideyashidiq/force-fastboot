@@ -92,7 +92,7 @@ pub(super) async fn run_scatter(cfg: &ScatterConfig<'_>) -> Result<()> {
     let clean_test = formatted_on_execute.unwrap_or(false);
     if is_clean {
         output::status::heading("Formatting data partitions");
-        let fmt_result = executor.format_data(0, clean_test, None).await;
+        let fmt_result = executor.format_data(0, clean_test, None).await?;
         let fmt_failed = pawflash_core::flash::results::print_format_results(&fmt_result);
         if fmt_failed > 0 {
             bail!("format-data failed with {fmt_failed} failure(s)");

@@ -39,7 +39,7 @@ pub async fn run(
     )
     .await?;
 
-    let result = executor.format_data(fs_options, clean_test, fs_type_override).await;
+    let result = executor.format_data(fs_options, clean_test, fs_type_override).await?;
 
     let failed = pawflash_core::flash::results::print_format_results(&result);
     if failed > 0 {

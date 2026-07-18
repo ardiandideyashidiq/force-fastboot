@@ -37,12 +37,16 @@ impl<T: FlashTransport> FlashExecutor<T> {
     /// falls back to **f2fs** for userdata, **ext4** for metadata/cache.
     ///
     /// When `clean_test` is true, only erases — skips filesystem generation.
+    ///
+    /// # Errors
+    ///
+    /// Returns `FlashError::GeneratorFailed` if the format tools cannot be extracted.
     pub async fn format_data(
         &mut self,
         fs_options: u32,
         clean_test: bool,
         fs_type_override: Option<FsType>,
-    ) -> FormatDataResult {
+    ) -> Result<FormatDataResult, FlashError> {
         let partitions = ["userdata", "metadata", "cache"];
 
         // Warn if not in fastbootd — caller should have transitioned.
@@ -77,16 +81,7 @@ impl<T: FlashTransport> FlashExecutor<T> {
             Err(e) => {
                 let reason = format!("failed to extract format tools: {e}");
                 error!(%reason);
-                let mut outcomes = Vec::with_capacity(partitions.len());
-                for partition in &partitions {
-                    outcomes.push(FormatOutcome {
-                        partition: partition.to_string(),
-                        status: FormatStatus::Failed(FlashError::GeneratorFailed {
-                            reason: reason.clone(),
-                        }),
-                    });
-                }
-                return FormatDataResult { outcomes };
+                return Err(FlashError::GeneratorFailed { reason });
             }
         };
 
@@ -153,7 +148,7 @@ impl<T: FlashTransport> FlashExecutor<T> {
         let skipped = outcomes.iter().filter(|o| matches!(o.status, FormatStatus::Skipped(_))).count();
         info!(wiped, erased_only, skipped, failed, "format-data complete");
 
-        FormatDataResult { outcomes }
+        Ok(FormatDataResult { outcomes })
     }
 
     /// Zero the bootloader control block (BCB) in the misc partition so the
@@ -397,7 +392,7 @@ mod tests {
     async fn format_data_handles_missing_partition() {
         let fb = MockTransport::new();
         let mut exec = FlashExecutor::new(fb, HashMap::new());
-        let result = exec.format_data(0, false, None).await;
+        let result = exec.format_data(0, false, None).await.unwrap();
         // With no partition-type responses configured, all three partitions are skipped
         assert_eq!(result.outcomes.len(), 3);
         for outcome in &result.outcomes {

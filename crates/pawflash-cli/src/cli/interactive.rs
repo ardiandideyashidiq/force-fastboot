@@ -124,7 +124,7 @@ pub async fn run(scatter_path: &Path, exclude: &[String], clean: bool, no_format
 
     if do_format {
         output::status::heading("Formatting data partitions");
-        let fmt_result = executor.format_data(0, clean_test, None).await;
+        let fmt_result = executor.format_data(0, clean_test, None).await?;
         let fmt_failed = pawflash_core::flash::results::print_format_results(&fmt_result);
         if fmt_failed > 0 {
             anyhow::bail!("format-data failed with {fmt_failed} failure(s)");

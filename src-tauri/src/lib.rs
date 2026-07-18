@@ -289,7 +289,7 @@ async fn format_data(
     _ => None,
   };
   let parsed_options = generator::parse_fs_options(&fs_options);
-  let result = executor.format_data(parsed_options, clean_test, fs_override).await;
+  let result = executor.format_data(parsed_options, clean_test, fs_override).await.map_err(|e| e.to_string())?;
 
   for e in map_flash_result(&result) {
     send_progress(&on_event, e);
@@ -408,11 +408,9 @@ async fn execute_plan(
       success: outcome.success,
       response: outcome.response.clone(),
     });
-    if !outcome.success {
-      if let Some(ref err) = outcome.error {
-        warn!(partition = %outcome.partition, error = %err, "partition flash failed");
-        send_progress(&on_event, ProgressEvent::Error { message: format!("{}: {err}", outcome.partition) });
-      }
+    if let Some(ref err) = outcome.error.as_ref().filter(|_| !outcome.success) {
+      warn!(partition = %outcome.partition, error = %err, "partition flash failed");
+      send_progress(&on_event, ProgressEvent::Error { message: format!("{}: {err}", outcome.partition) });
     }
   }
 

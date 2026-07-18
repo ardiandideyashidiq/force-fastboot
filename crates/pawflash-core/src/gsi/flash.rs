@@ -288,7 +288,7 @@ pub async fn execute_gsi_flash(
                 }
                 GsiStage::WipeUserdata => {
                     report(GsiEvent::Step(GsiStep::WipingUserdata));
-                    executor.format_data(0, clean_test, None).await;
+                    executor.format_data(0, clean_test, None).await?;
                 }
                 GsiStage::FlashSystem => {
                     let (system_partition, system_size) = resolve_system_partition(&mut executor).await?;
