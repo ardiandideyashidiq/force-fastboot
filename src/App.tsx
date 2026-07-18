@@ -91,7 +91,7 @@ function App() {
                 <RotateCcw size={18} className={rebooting ? "animate-spin" : ""} />
                 {sidebarOpen && "Reboot"}
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent side="right" align="start" sideOffset={8} collisionAvoidance={{ side: 'none' }} alignItemWithTrigger={false}>
                 {rebootTargets.map((t) => (
                   <SelectItem key={t.value} value={t.value}>
                     {t.label}

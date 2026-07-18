@@ -106,7 +106,7 @@ export default function AppLayout({
         </div>
 
         {/* Nav */}
-        <nav className="flex flex-col gap-1.5 px-3 mt-2 shrink-0">
+          <nav className={"flex flex-col gap-1.5 mt-2 shrink-0 " + (sidebarOpen ? "px-2" : "px-1")}>
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = tab === item.id;
@@ -116,15 +116,24 @@ export default function AppLayout({
                 variant="ghost"
                 size={sidebarOpen ? "lg" : "icon-lg"}
                 className={
-                  "h-12 border border-border/50 hover:border-border/80 " +
+                  (sidebarOpen ? "h-12 " : "size-10 ") +
+                  "mx-1 p-0 border border-border/50 hover:border-border/80 " +
                   (isActive
-                    ? "bg-trace-copper/15 text-trace-copper border-trace-copper/60"
-                    : "text-muted-foreground hover:text-foreground hover:bg-muted/40")
+                    ? "text-trace-copper border-trace-copper/60"
+                    : "text-muted-foreground hover:text-foreground")
                 }
                 onClick={() => setTab(item.id)}
               >
-                <Icon size={18} />
-                {sidebarOpen && <span>{item.label}</span>}
+                <span className={
+                  "flex items-center w-full h-full rounded " +
+                  (sidebarOpen ? "gap-2 px-3 " : "justify-center ") +
+                  (isActive
+                    ? "bg-trace-copper/15"
+                    : "hover:bg-muted/40")
+                }>
+                  <Icon size={18} />
+                  {sidebarOpen && <span>{item.label}</span>}
+                </span>
               </Button>
             );
           })}
@@ -135,7 +144,7 @@ export default function AppLayout({
 
         {/* Sidebar actions (device status, reboot) */}
         {sidebarActions && (
-          <div className="mb-3 px-4">
+          <div className={"mb-3 " + (sidebarOpen ? "px-4" : "px-1.5")}>
             {typeof sidebarActions === "function"
               ? sidebarActions({ sidebarOpen })
               : sidebarActions}
@@ -143,7 +152,7 @@ export default function AppLayout({
         )}
 
         {/* Theme toggle */}
-        <div className="shrink-0 border-t border-sidebar-border px-4 py-4">
+        <div className={"shrink-0 border-t border-sidebar-border py-4 " + (sidebarOpen ? "px-4" : "px-1.5")}>
           {sidebarOpen ? (
             <div className="grid grid-cols-2 gap-1.5">
               <Button
