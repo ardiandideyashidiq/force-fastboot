@@ -1,5 +1,5 @@
 name: 'Setup pawflash build environment'
-description: 'Checkout, install Rust toolchain (+ optional target), setup cache, install system deps'
+description: 'Install Rust toolchain (+ optional target), setup cache, install system deps, setup Node/pnpm for GUI'
 
 inputs:
   target:
@@ -14,19 +14,11 @@ inputs:
     description: 'Extra cache key suffix'
     required: false
     default: ''
-  fetch-depth:
-    description: 'Git fetch depth (0 = full history)'
-    required: false
-    default: '1'
 
 runs:
   using: composite
 
   steps:
-    - uses: actions/checkout@v4
-      with:
-        fetch-depth: ${{ inputs.fetch-depth }}
-
     - uses: dtolnay/rust-toolchain@stable
       with:
         targets: ${{ inputs.target }}
@@ -41,7 +33,9 @@ runs:
     - name: Install CLI system deps
       if: runner.os == 'Linux' && inputs.deps == 'cli'
       shell: bash
-      run: sudo apt-get update && sudo apt-get install -y libudev-dev
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libudev-dev
 
     - name: Install GUI system deps
       if: runner.os == 'Linux' && inputs.deps == 'gui'
@@ -52,3 +46,16 @@ runs:
           libwebkit2gtk-4.1-dev libgtk-3-dev \
           libglib2.0-dev libxdo-dev libssl-dev \
           librsvg2-dev patchelf
+
+    - name: Setup pnpm
+      if: inputs.deps == 'gui'
+      uses: pnpm/action-setup@v4
+      with:
+        version: 10
+
+    - name: Setup Node
+      if: inputs.deps == 'gui'
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: pnpm
