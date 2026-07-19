@@ -35,10 +35,6 @@ pub enum FlashError {
     #[error("flash action failed: {partition}: {reason}")]
     ActionFailed { partition: String, reason: String },
 
-    #[error("filesystem generator failed: {reason}")]
-    #[diagnostic(help("the format tools may be corrupted; reinstall pawflash"))]
-    GeneratorFailed { reason: String },
-
     #[error("failed to parse sparse image header")]
     SparseParseFailed,
 

@@ -12,9 +12,8 @@ use tokio::io::AsyncReadExt;
 use crate::flash::error::{FlashError, Result};
 
 pub(crate) mod chunked;
-pub(crate) mod scan;
 
-pub(crate) use chunked::{flash_sparse_image, flash_sparse_wrapped, sparse_wrap_file};
+pub(crate) use chunked::{flash_sparse_image, flash_sparse_wrapped};
 
 /// Reusable 1 MiB transfer buffer to avoid per-chunk allocation.
 pub(crate) struct XferBuf {
@@ -35,11 +34,6 @@ impl XferBuf {
         &mut self.buf[..end]
     }
 }
-
-/// Crypto footer offset used by legacy FDE (Full Disk Encryption).
-/// TWRP preserves this space during mkfs and wipes it afterward
-/// to remove encryption — matches `CRYPT_FOOTER_OFFSET` in `bootable/recovery/partition.cpp`.
-pub const CRYPT_FOOTER_OFFSET: u64 = 0x4000;
 
 /// Helper: call `read_exact_padded`, then raise `SparseTruncated` if fewer
 /// bytes were read from the file than requested.

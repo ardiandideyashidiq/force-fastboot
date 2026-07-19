@@ -32,8 +32,7 @@ pawflash/
 │   ├── types/                        → api.ts, progress.ts
 │   └── index.css                     → Tailwind v4 @theme tokens, copper palette
 └── vendor/
-    ├── fastboot-rs/                  → fork of boardswarm/fastboot-rs (+split.rs, +commands)
-    └── format-tools/                 → prebuilt mke2fs + make_f2fs (Linux & Windows)
+    └── fastboot-rs/                  → fork of boardswarm/fastboot-rs (+split.rs, +commands)
 ```
 
 ## Critical Tauri wiring
@@ -46,7 +45,7 @@ channel.onmessage = (event) => addProgressEvent(event);
 await invoke("force_fastboot", { onEvent: channel });
 ```
 
-Affected commands: `force_fastboot`, `disable_vbmeta`, `format_data`, `execute_plan`, `flash_raw_image`. Omitting `on_event` causes silent runtime errors.
+Affected commands: `force_fastboot`, `disable_vbmeta`, `execute_plan`, `flash_raw_image`. Omitting `on_event` causes silent runtime errors.
 
 `ProgressEvent` uses `#[serde(tag = "event", content = "data")]` — TS discriminated union mirrored in `src/types/progress.ts`.
 
@@ -83,5 +82,4 @@ Shared setup: `.github/actions/setup/`. Linux build deps: `libudev-dev` (CLI), `
 ## Vendored dep notes
 
 - `fastboot-rs` fork adds: `Flashing(s)`, `SetActive(s)`, `ResizeLogicalPartition`, `SnapshotUpdate`, `split.rs` (sparse image chunking). Bugfix: `Verify` formats as `"verify:"` not `"verity:"`.
-- `format-tools/` — prebuilt mke2fs/make_f2fs per platform, embedded via `include_bytes!`.
 - No generated code, no migrations, no codegen.

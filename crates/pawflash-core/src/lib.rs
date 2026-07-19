@@ -11,8 +11,6 @@
 pub mod flash;
 /// Preloader serial fastboot mode negotiation.
 pub mod force_fastboot;
-/// Data partition formatting (userdata, cache, metadata).
-pub mod format;
 
 /// User-facing output formatting, status lines, and tables.
 pub mod output;

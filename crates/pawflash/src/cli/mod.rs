@@ -6,8 +6,6 @@ pub mod force_fastboot;
 pub mod flash;
 /// Fastboot device operations CLI handler.
 pub mod device;
-/// Format-data CLI handler.
-pub mod format_data;
 /// Disable-vbmeta CLI handler.
 pub mod disable_vbmeta;
 

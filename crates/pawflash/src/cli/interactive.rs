@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::time::Duration;
 
-use miette::{bail, Context, IntoDiagnostic, Result};
+use miette::{Context, IntoDiagnostic, Result};
 use inquire::{Confirm, Select};
 use tracing::info;
 
@@ -74,14 +74,6 @@ async fn do_reboot<T: pawflash_core::flash::transport::FlashTransport>(executor:
     Ok(())
 }
 
-/// Format behaviour for the interactive flash flow.
-#[derive(Debug, Clone, Copy)]
-pub struct FormatConfig {
-    pub clean: bool,
-    pub no_format: bool,
-    pub clean_test: bool,
-}
-
 /// Run the interactive flash flow: show plan, confirm, execute with progress,
 /// then reboot.
 ///
@@ -92,7 +84,6 @@ pub struct FormatConfig {
 pub async fn run(
     scatter_path: &Path,
     exclude: &[String],
-    fmt: FormatConfig,
     simulate: bool,
 ) -> Result<()> {
     let parsed = sp::parse_scatter(scatter_path)
@@ -106,17 +97,13 @@ pub async fn run(
             image_search: true,
         },
         exclude: exclude.to_vec(),
-        clean: if fmt.clean || fmt.clean_test { sp::CleanMode::Yes } else { sp::CleanMode::No },
+        clean: sp::CleanMode::No,
         package_root: Some(scatter_path.parent()
             .unwrap_or_else(|| std::path::Path::new("."))
             .to_path_buf()),
         ..Default::default()
     };
     let plan = sp::build_flash_plan(&parsed, &options);
-
-    let do_format = !fmt.no_format
-        && (fmt.clean || fmt.clean_test)
-        && Confirm::new("Format data partitions (userdata, cache, metadata)?").with_default(true).prompt().into_diagnostic()?;
 
     if !show_plan(&parsed, &plan)? {
         return Ok(());
@@ -137,7 +124,7 @@ pub async fn run(
         let transport = SimulatedTransport::from_scatter(&parsed);
         let vars = transport.device_vars().clone();
         let mut executor = FlashExecutor::new(transport, vars);
-        return execute_interactive_plan(&mut executor, &plan, do_format, fmt.clean_test).await;
+        return execute_interactive_plan(&mut executor, &plan).await;
     }
 
     let mut executor = output::spinner::run_with_spinner(
@@ -146,26 +133,14 @@ pub async fn run(
     )
     .await?;
 
-    execute_interactive_plan(&mut executor, &plan, do_format, fmt.clean_test).await
+    execute_interactive_plan(&mut executor, &plan).await
 }
 
 /// Shared execution logic for real and simulated interactive flows.
 async fn execute_interactive_plan<T: pawflash_core::flash::transport::FlashTransport>(
     executor: &mut FlashExecutor<T>,
     plan: &sp::FlashPlan,
-    do_format: bool,
-    clean_test: bool,
 ) -> Result<()> {
-    if do_format {
-        output::status::heading("Formatting data partitions");
-        let fmt_result = executor.format_data(0, clean_test, None).await?;
-        let fmt_failed = pawflash_core::flash::results::print_format_results(&fmt_result);
-        if fmt_failed > 0 {
-            bail!("format-data failed with {fmt_failed} failure(s)");
-        }
-        output::status::blank();
-    }
-
     let pb = output::spinner::progress_bar(0);
     let result = executor.execute_plan(plan, false, Some(&pb)).await;
     pb.finish_and_clear();

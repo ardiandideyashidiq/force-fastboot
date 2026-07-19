@@ -6,8 +6,6 @@ use std::path::Path;
 
 use pawflash_core::flash::executor::BootTarget;
 use pawflash_core::flash::FlashExecutor;
-use pawflash_core::format::generator::{self, FsType};
-
 use pawflash_core::scatter_parser as sp;
 use serde::Serialize;
 use tauri::ipc::Channel;
@@ -42,7 +40,7 @@ pub enum ProgressEvent {
   Phase { phase: String, message: String },
   FlashProgress { partition: String, percent: f64 },
   FlashComplete { partition: String, success: bool, response: Option<String> },
-  FormatProgress { partition: String, status: String },
+
   DeviceAction { action: String, detail: String },
   Overall { current: usize, total: usize },
   Warning { message: String },
@@ -64,21 +62,6 @@ fn send_progress(ch: &Channel<ProgressEvent>, event: ProgressEvent) {
   let _ = ch.send(event);
 }
 
-fn map_flash_result(result: &pawflash_core::flash::results::FormatDataResult) -> Vec<ProgressEvent> {
-  result
-    .outcomes
-    .iter()
-    .map(|o| {
-      let status = match &o.status {
-        pawflash_core::flash::results::FormatStatus::Wiped => "wiped".into(),
-        pawflash_core::flash::results::FormatStatus::ErasedOnly(_) => "erased-only".into(),
-        pawflash_core::flash::results::FormatStatus::Skipped(r) => format!("skipped ({r})"),
-        pawflash_core::flash::results::FormatStatus::Failed(e) => format!("failed ({e})"),
-      };
-      ProgressEvent::FormatProgress { partition: o.partition.clone(), status }
-    })
-    .collect()
-}
 
 // ── Commands ──────────────────────────────────────────────────────────
 
@@ -258,54 +241,6 @@ async fn disable_vbmeta(on_event: Channel<ProgressEvent>) -> Result<(), String> 
   Ok(())
 }
 
-#[tracing::instrument(skip(on_event), fields(fs_type, clean_test, fs_options_count = fs_options.len()))]
-#[tauri::command]
-async fn format_data(
-  fs_type: String,
-  fs_options: Vec<String>,
-  clean_test: bool,
-  on_event: Channel<ProgressEvent>,
-) -> Result<(), String> {
-  send_progress(&on_event, ProgressEvent::Phase { phase: "connecting".into(), message: "Connecting to device...".into() });
-  let executor = FlashExecutor::connect().await.map_err(|e| {
-    warn!(error = %e, "connect failed");
-    e.to_string()
-  })?;
-  let mut executor = executor.ensure_fastbootd().await.map_err(|e| {
-    warn!(error = %e, "ensure_fastbootd failed");
-    e.to_string()
-  })?;
-
-  send_progress(&on_event, ProgressEvent::Phase { phase: "formatting".into(), message: "Formatting data partitions...".into() });
-  let fs_override = match fs_type.to_lowercase().as_str() {
-    "ext4" => Some(FsType::Ext4),
-    "f2fs" => Some(FsType::F2fs),
-    _ => None,
-  };
-  let parsed_options = generator::parse_fs_options(&fs_options);
-  let result = executor.format_data(parsed_options, clean_test, fs_override).await.map_err(|e| e.to_string())?;
-
-  for e in map_flash_result(&result) {
-    send_progress(&on_event, e);
-  }
-
-  let failed: usize = result
-    .outcomes
-    .iter()
-    .filter(|o| matches!(o.status, pawflash_core::flash::results::FormatStatus::Failed(_)))
-    .count();
-  let wiped: usize = result.outcomes.iter().filter(|o| matches!(o.status, pawflash_core::flash::results::FormatStatus::Wiped)).count();
-  info!(%fs_type, clean_test, %wiped, %failed, "format-data complete");
-
-  if failed > 0 {
-    warn!(%failed, "format-data completed with failures");
-    return Err(format!("format-data completed with {failed} failure(s)"));
-  }
-
-  send_progress(&on_event, ProgressEvent::Done { ok: true, detail: "Data partitions formatted".into() });
-  Ok(())
-}
-
 // ── Scatter commands ──────────────────────────────────────────────────
 
 #[tracing::instrument(skip_all, fields(path))]
@@ -475,7 +410,6 @@ pub fn run() {
       set_active_slot,
       get_var,
       disable_vbmeta,
-      format_data,
       parse_scatter,
       build_plan,
       execute_plan,

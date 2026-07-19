@@ -49,12 +49,6 @@ export function ConsoleProvider({ children }: { children: ReactNode }) {
           });
           break;
         }
-        case "FormatProgress":
-          addEntry({
-            text: `[${event.data.partition}] ${event.data.status}`,
-            type: "info",
-          });
-          break;
         case "DeviceAction":
           addEntry({
             text: `${event.data.action}: ${event.data.detail}`,

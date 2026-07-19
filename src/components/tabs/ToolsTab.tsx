@@ -2,7 +2,7 @@ import { useState, useMemo } from "react";
 import { invoke, Channel } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Select, SelectTrigger, SelectContent, SelectItem } from "@/components/ui/select";
+
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useConsole } from "@/hooks/useConsole";
 import type { ScatterFile, ConfirmAction } from "@/types/api";
@@ -11,9 +11,7 @@ import {
   FileText,
   Upload,
   Play,
-  Trash2,
   ShieldOff,
-  HardDrive,
   LoaderCircle,
 } from "lucide-react";
 
@@ -23,9 +21,7 @@ export default function ToolsTab() {
   const [scatterMeta, setScatterMeta] = useState<ScatterFile | null>(null);
   const [scatterLoading, setScatterLoading] = useState(false);
   const [vbmetaLoading, setVbmetaLoading] = useState(false);
-  const [formatLoading, setFormatLoading] = useState(false);
   const [planLoading, setPlanLoading] = useState(false);
-  const [formatFsType, setFormatFsType] = useState("f2fs");
   const [confirmDialog, setConfirmDialog] = useState<ConfirmAction | null>(null);
 
   const pickScatter = async () => {
@@ -66,24 +62,6 @@ export default function ToolsTab() {
       toast.error(`Failed to disable verified boot: ${e}`);
     }
     setVbmetaLoading(false);
-  };
-
-  const handleFormatData = async () => {
-    setFormatLoading(true);
-    try {
-      const channel = new Channel<ProgressEvent>();
-      channel.onmessage = addProgressEvent;
-      await invoke("format_data", {
-        fsType: formatFsType,
-        fsOptions: [] as string[],
-        cleanTest: false,
-        onEvent: channel,
-      });
-      toast.success("User data formatted");
-    } catch (e) {
-      toast.error(`Format failed: ${e}`);
-    }
-    setFormatLoading(false);
   };
 
   const partitionCount = useMemo(
@@ -192,80 +170,36 @@ export default function ToolsTab() {
         </div>
       </section>
 
-      {/* Format User Data + Disable Verified Boot */}
-      <div className="grid grid-cols-2 max-sm:grid-cols-1 gap-3">
-        <section className="panel-shell flex items-center justify-between gap-3 px-5 py-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <HardDrive size={16} className="shrink-0 text-muted-foreground" />
-            <div>
-              <p className="text-body font-display font-medium uppercase tracking-wider text-foreground/90">
-                Format User Data
-              </p>
-              <p className="text-caption text-muted-foreground/70 leading-tight">
-                {formatFsType.toUpperCase()}
-              </p>
-            </div>
+      {/* Disable Verified Boot */}
+      <section className="panel-shell flex items-center justify-between gap-3 px-5 py-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <ShieldOff size={16} className="shrink-0 text-muted-foreground" />
+          <div>
+            <p className="text-body font-display font-medium uppercase tracking-wider text-foreground/90">
+              Disable Verified Boot
+            </p>
+            <p className="text-caption text-muted-foreground/70 leading-tight">
+              dm-verity + AVB
+            </p>
           </div>
-          <div className="flex items-center gap-1.5 shrink-0">
-            <Select value={formatFsType} onValueChange={(v) => v && setFormatFsType(v)}>
-              <SelectTrigger size="sm" className="h-8 min-w-16">
-                <span className="text-label">{formatFsType.toUpperCase()}</span>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="f2fs">F2FS</SelectItem>
-                <SelectItem value="ext4">Ext4</SelectItem>
-              </SelectContent>
-            </Select>
-            <Button
-              variant="accent"
-              size="sm"
-              onClick={() =>
-                setConfirmDialog({
-                  title: "Format User Data",
-                  description:
-                    "This will erase all user data on the device. The data partition will be reformatted and all contents will be lost. Continue?",
-                  confirmLabel: "Format",
-                  onConfirm: handleFormatData,
-                })
-              }
-              disabled={formatLoading}
-            >
-        <Trash2 size={14} className="mr-1" />
-            {formatLoading ? <><LoaderCircle size={14} className="animate-spin" /> Working...</> : "Format"}
-            </Button>
-          </div>
-        </section>
-
-        <section className="panel-shell flex items-center justify-between gap-3 px-5 py-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <ShieldOff size={16} className="shrink-0 text-muted-foreground" />
-            <div>
-              <p className="text-body font-display font-medium uppercase tracking-wider text-foreground/90">
-                Disable Verified Boot
-              </p>
-              <p className="text-caption text-muted-foreground/70 leading-tight">
-                dm-verity + AVB
-              </p>
-            </div>
-          </div>
-          <Button
-            variant="destructive"
-            size="sm"
-            onClick={() =>
-              setConfirmDialog({
-                title: "Disable Verified Boot",
-                description:
-                  "Disabling dm-verity and AVB will weaken device security verification. This is typically needed only when flashing custom firmware. Continue?",
-                confirmLabel: "Disable",
-                onConfirm: handleDisableVbmeta,
-              })
-            }
-            disabled={vbmetaLoading}
-          >
-            {vbmetaLoading ? <><LoaderCircle size={14} className="animate-spin" /> Working...</> : "Disable"}
-          </Button>
-        </section>
-      </div>
+        </div>
+        <Button
+          variant="destructive"
+          size="sm"
+          onClick={() =>
+            setConfirmDialog({
+              title: "Disable Verified Boot",
+              description:
+                "Disabling dm-verity and AVB will weaken device security verification. This is typically needed only when flashing custom firmware. Continue?",
+              confirmLabel: "Disable",
+              onConfirm: handleDisableVbmeta,
+            })
+          }
+          disabled={vbmetaLoading}
+        >
+          {vbmetaLoading ? <><LoaderCircle size={14} className="animate-spin" /> Working...</> : "Disable"}
+        </Button>
+      </section>
 
       {confirmDialog && (
         <ConfirmDialog

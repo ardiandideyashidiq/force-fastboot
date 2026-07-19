@@ -19,7 +19,6 @@ pawflash flash scatter <scatter-path> [--mode dry-run|selective|dirty-flash] [--
 
 pawflash flash <partition> <image> [--slot a|b] [--both]
 pawflash disable-vbmeta [-v]
-pawflash format-data [-v] [--fs-options casefold,projid,compress] [--fs-type ext4|f2fs]
 pawflash device info
 pawflash device reboot [system|bootloader|fastbootd|recovery]
 pawflash device lock|unlock

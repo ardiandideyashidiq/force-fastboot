@@ -9,7 +9,7 @@ use pawflash_core::flash::simulate::SimulatedTransport;
 use pawflash_core::output;
 use pawflash_core::scatter_parser as sp;
 
-use super::{Action, FormatMode, ScatterConfig};
+use super::{Action, ScatterConfig};
 
 pub(super) async fn run_scatter(cfg: &ScatterConfig<'_>) -> Result<()> {
     debug!(
@@ -34,13 +34,6 @@ pub(super) async fn run_scatter(cfg: &ScatterConfig<'_>) -> Result<()> {
     );
 
     let is_dry_run = matches!(cfg.action, Action::DryRun);
-    let formatted_on_execute = match cfg.format_mode {
-        FormatMode::Skip => None,
-        FormatMode::Format => Some(false),
-        FormatMode::Test => Some(true),
-    };
-    let is_clean = formatted_on_execute.is_some();
-    let clean_test = formatted_on_execute.unwrap_or(false);
 
     let options = sp::FlashPlanOptions {
         mode: cfg.mode,
@@ -54,7 +47,7 @@ pub(super) async fn run_scatter(cfg: &ScatterConfig<'_>) -> Result<()> {
             .to_path_buf()),
         image_verification: cfg.image_verification,
         allowance: cfg.allowance,
-        clean: if is_clean { sp::CleanMode::Yes } else { sp::CleanMode::No },
+        clean: sp::CleanMode::No,
     };
 
     info!("building flash plan");
@@ -87,16 +80,6 @@ pub(super) async fn run_scatter(cfg: &ScatterConfig<'_>) -> Result<()> {
         let vars = transport.device_vars().clone();
         let mut executor = FlashExecutor::new(transport, vars);
 
-        if is_clean {
-            output::status::heading("Formatting data partitions (simulated)");
-            let fmt_result = executor.format_data(0, clean_test, None).await?;
-            let fmt_failed = pawflash_core::flash::results::print_format_results(&fmt_result);
-            if fmt_failed > 0 {
-                bail!("simulated format-data failed with {fmt_failed} failure(s)");
-            }
-            output::status::blank();
-        }
-
         debug!("executing flash plan against simulated transport");
         let result = executor.execute_plan(&plan, false, None).await;
         return print_flash_result(&result, cfg.json);
@@ -114,17 +97,6 @@ pub(super) async fn run_scatter(cfg: &ScatterConfig<'_>) -> Result<()> {
         FlashExecutor::wait_for_device(Duration::from_secs(60)),
     )
     .await?;
-
-    // ── Optional: format data partitions (--clean/--clean-test) ────
-    if is_clean {
-        output::status::heading("Formatting data partitions");
-        let fmt_result = executor.format_data(0, clean_test, None).await?;
-        let fmt_failed = pawflash_core::flash::results::print_format_results(&fmt_result);
-        if fmt_failed > 0 {
-            bail!("format-data failed with {fmt_failed} failure(s)");
-        }
-        output::status::blank();
-    }
 
     debug!("connected, executing flash plan");
 

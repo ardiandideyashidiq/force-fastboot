@@ -3,7 +3,7 @@ use std::path::Path;
 
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use android_sparse_image::{
-    split::{split_image, split_raw}, ChunkHeader, DEFAULT_BLOCKSIZE, FileHeader, FileHeaderBytes,
+    split::{split_image, split_raw}, ChunkHeader, FileHeader, FileHeaderBytes,
     CHUNK_HEADER_BYTES_LEN, FILE_HEADER_BYTES_LEN,
 };
 use indicatif::ProgressBar;
@@ -13,7 +13,6 @@ use crate::flash::error::{FlashError, Result};
 use crate::flash::transport::FlashTransport;
 
 use super::{read_exact_padded, read_exact_padded_or_truncate, XferBuf};
-use super::scan::scan_extents;
 
 /// Flash a sparse image to a partition.
 ///
@@ -207,130 +206,4 @@ pub(crate) async fn flash_sparse_wrapped(
     Ok(last_resp)
 }
 
-/// Create an Android sparse image from a raw file by detecting data/hole
-/// runs, then flash it via download+flash.
-///
-/// Unlike [`flash_sparse_wrapped`] (which uses `split_raw` and treats every
-/// block as RAW data), this function collapses zero runs into DONTCARE
-/// chunks, producing a compact image that can be sent in a single
-/// download+flash even for huge partitions with only a few metadata blocks.
-///
-/// The file is extended to `effective_size` (normally `part_size -
-/// footer_size`) before scanning, ensuring all partition metadata regions
-/// (SIT, NAT, ...) are covered.  The last `footer_size` bytes are emitted
-/// as a DONTCARE chunk — the bootloader writes zeros there, matching
-/// TWRP's behaviour of wiping the crypto footer.
-///
-/// If `footer_size` is zero, `effective_size == part_size` and the entire
-/// partition is covered by the scan.
-pub(crate) async fn sparse_wrap_file(
-    fb: &mut impl FlashTransport,
-    partition: &str,
-    path: &Path,
-    part_size: u64,
-    max_download: u32,
-    footer_size: u64,
-    buf: &mut XferBuf,
-) -> Result<String> {
-    debug!(%partition, part_size, footer_size, max_download, "full-scan sparse wrapping");
 
-    let blk = u64::from(DEFAULT_BLOCKSIZE);
-    let effective_size = part_size.saturating_sub(footer_size);
-    let total_blocks = part_size / blk;
-    if total_blocks == 0 {
-        fb.erase(partition).await?;
-        return Ok(String::new());
-    }
-
-    // Save original file size before extending.
-    let orig_size = {
-        let m = tokio::fs::metadata(path).await?;
-        m.len()
-    };
-
-    // Extend the output file to effective_size. On Linux this creates a
-    // sparse file (holes) so the extra space costs no disk I/O.
-    // Note: OpenOptions::write(true) (without create(true)/truncate(true))
-    // preserves the existing filesystem data written by generate_empty_fs.
-    {
-        let f = tokio::fs::OpenOptions::new()
-            .write(true)
-            .open(path)
-            .await?;
-        f.set_len(effective_size).await?;
-        drop(f);
-    }
-
-    // ---- scan for data / hole runs ----
-    // We scan from block 0 up to the smaller of (orig_size, effective_size)
-    // because blocks beyond orig_size were added by set_len and are
-    // guaranteed zeros.  We use SEEK_DATA / SEEK_HOLE on Unix for
-    // efficient extent iteration; fallback path reads in chunks.
-    let scan_size = effective_size.min(orig_size);
-
-    let chunks = scan_extents(path, scan_size, effective_size, part_size, blk)?;
-
-    if chunks.is_empty() {
-        // Entire partition is zero — just erase.
-        fb.erase(partition).await?;
-        return Ok(String::new());
-    }
-
-    let n_chunks = u32::try_from(chunks.len())
-        .map_err(|_| FlashError::Io(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            "too many sparse chunks",
-        )))?;
-    let total_blocks = chunks.iter().map(|c| c.header.chunk_size).sum::<u32>();
-    let header = FileHeader {
-        block_size: DEFAULT_BLOCKSIZE,
-        blocks: total_blocks,
-        chunks: n_chunks,
-        checksum: 0,
-    };
-    let image_size = FILE_HEADER_BYTES_LEN
-        + chunks.iter().map(|c| c.header.total_size as usize).sum::<usize>();
-
-    // ---- check size ----
-    let sparse_size = u32::try_from(image_size)
-        .map_err(|_| FlashError::Io(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            "sparse image too large for u32",
-        )))?;
-    if sparse_size > max_download {
-        return Err(FlashError::ActionFailed {
-            partition: partition.into(),
-            reason: format!(
-                "compressed sparse image ({sparse_size}) exceeds max-download-size ({max_download}); \
-                 try again without format-data"
-            ),
-        });
-    }
-
-    // ---- send ----
-    let mut file = tokio::fs::File::open(path).await?;
-
-    let mut sender = fb.download(sparse_size).await?;
-    sender.extend_from_slice(&header.to_bytes()).await?;
-
-    for chunk in &chunks {
-        sender.extend_from_slice(&chunk.header.to_bytes()).await?;
-        if chunk.size > 0 {
-            file.seek(SeekFrom::Start(chunk.offset as u64)).await?;
-            let mut remaining = chunk.size;
-            let chunk_buf = buf.get(1024 * 1024);
-            while remaining > 0 {
-                let to_read = chunk_buf.len().min(remaining);
-                read_exact_padded(&mut file, &mut chunk_buf[..to_read]).await?;
-                sender.extend_from_slice(&chunk_buf[..to_read]).await?;
-                remaining = remaining.saturating_sub(to_read);
-            }
-        }
-    }
-
-    sender.finish().await?;
-    let resp = fb.flash(partition).await?;
-
-    debug!(%partition, sparse_size, response = resp, "full-scan sparse flash complete");
-    Ok(resp)
-}

@@ -2,7 +2,6 @@ export type ProgressEvent =
   | { event: "Phase"; data: { phase: string; message: string } }
   | { event: "FlashProgress"; data: { partition: string; percent: number } }
   | { event: "FlashComplete"; data: { partition: string; success: boolean; response: string | null } }
-  | { event: "FormatProgress"; data: { partition: string; status: string } }
   | { event: "DeviceAction"; data: { action: string; detail: string } }
   | { event: "Overall"; data: { current: number; total: number } }
   | { event: "Warning"; data: { message: string } }

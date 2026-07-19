@@ -45,19 +45,6 @@ pub enum Commands {
     /// Flash empty vbmeta to both slots, disabling dm-verity and AVB verification
     #[command(name = "disable-vbmeta")]
     DisableVbmeta,
-    /// Erase and format userdata, cache, metadata with empty filesystems
-    #[command(name = "format-data")]
-    FormatData {
-        /// Comma-separated filesystem options: casefold, projid, compress
-        #[arg(long, value_delimiter = ',')]
-        fs_options: Vec<String>,
-        /// Filesystem type for userdata: ext4 or f2fs (default: f2fs)
-        #[arg(long, default_value = "f2fs")]
-        fs_type: String,
-        /// Erase-only: skip filesystem generation (testing)
-        #[arg(long)]
-        clean_test: bool,
-    },
     /// Fastboot device operations
     Device {
         #[command(subcommand)]
@@ -113,15 +100,6 @@ pub enum FlashAction {
         /// Flash even if some slots are incomplete
         #[arg(long)]
         allow_incomplete_slots: bool,
-        /// Flash userdata as well (clean install)
-        #[arg(long)]
-        clean: bool,
-        /// Skip format-data step even when --clean is set
-        #[arg(long)]
-        no_format: bool,
-        /// Erase-only format for clean install (testing, implies --clean)
-        #[arg(long)]
-        clean_test: bool,
     },
 
 }

@@ -38,9 +38,6 @@ async fn run(cli: Cli) -> miette::Result<()> {
         Some(Commands::DisableVbmeta) => {
             pawflash::cli::disable_vbmeta::run(simulate).await?;
         }
-        Some(Commands::FormatData { fs_options, fs_type, clean_test }) => {
-            pawflash::cli::format_data::run(fs_options, fs_type, clean_test, simulate).await?;
-        }
         Some(Commands::Device { action }) => {
             pawflash::cli::device::run(action, simulate).await?;
         }

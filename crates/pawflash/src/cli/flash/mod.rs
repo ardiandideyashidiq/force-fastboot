@@ -22,14 +22,6 @@ enum Action {
     Execute,
 }
 
-/// Whether and how to format data partitions.
-#[derive(Debug, Clone, Copy)]
-enum FormatMode {
-    Skip,
-    Format,
-    Test,
-}
-
 /// Grouped config for scatter operations.
 struct ScatterConfig<'a> {
     scatter_path: &'a Path,
@@ -43,7 +35,6 @@ struct ScatterConfig<'a> {
     image_verification: sp::ImageVerification,
     allowance: sp::Allowance,
     json: bool,
-    format_mode: FormatMode,
     simulate: bool,
 }
 
@@ -86,9 +77,6 @@ pub async fn run(
             ref part,
             ref group,
             ref exclude,
-            clean,
-            no_format,
-            clean_test,
             ref firmware_dir,
             check_images,
             include_preloader,
@@ -110,13 +98,7 @@ pub async fn run(
                 if !simulate {
                     warn!("no --part/--group specified; interactive mode uses --mode dirty-flash (your --mode {mode:?} is ignored)");
                 }
-                return crate::cli::interactive::run(
-                    &scatter_path,
-                    exclude,
-                    crate::cli::interactive::FormatConfig { clean, no_format, clean_test },
-                    simulate,
-                )
-                .await;
+                return crate::cli::interactive::run(&scatter_path, exclude, simulate).await;
             }
 
             let action = if show {
@@ -125,11 +107,6 @@ pub async fn run(
                 Action::DryRun
             } else {
                 Action::Execute
-            };
-            let format_mode = if clean && !no_format || clean_test {
-                if clean_test { FormatMode::Test } else { FormatMode::Format }
-            } else {
-                FormatMode::Skip
             };
             let cfg = ScatterConfig {
                 scatter_path: &scatter_path,
@@ -149,7 +126,6 @@ pub async fn run(
                     allow_incomplete_slots,
                 },
                 json,
-                format_mode,
                 simulate,
             };
             scatter::run_scatter(&cfg).await?;
