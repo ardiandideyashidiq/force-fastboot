@@ -30,10 +30,12 @@ pub async fn run(simulate: bool) -> Result<()> {
         return Ok(());
     }
 
-    output::status::heading("Waiting for preloader serial port (120s timeout)...");
-
-    let mut port = serial::wait_for_preloader(false).await?
-        .context("preloader wait returned without a port")?;
+    let mut port = output::spinner::run_with_spinner(
+        "Waiting for preloader serial port (120s timeout)...",
+        serial::wait_for_preloader(false),
+    )
+    .await?
+    .context("preloader wait returned without a port")?;
 
     output::status::ok("[+]", format!("{port} appeared"));
     output::status::blank();
@@ -65,9 +67,12 @@ pub async fn run(simulate: bool) -> Result<()> {
                 }
 
                 drop(dev);
-                warn!(%port, "port lost, waiting for reconnect");
+                output::status::warn("[!]", format!("{port} lost, waiting for reconnect"));
 
-                if let Some(new_port) = serial::wait_for_preloader(true).await? {
+                if let Some(new_port) = output::spinner::run_with_spinner(
+                    "Waiting for device to reconnect...",
+                    serial::wait_for_preloader(true),
+                ).await? {
                     port = new_port;
                     output::status::ok("[+]", format!("{port} reconnected"));
                     debug!(%port, "reconnected after port loss");
