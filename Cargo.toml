@@ -2,7 +2,7 @@
 resolver = "2"
 members = [
     "crates/pawflash-core",
-    "crates/pawflash-cli",
+    "crates/pawflash",
     "src-tauri",
 ]
 

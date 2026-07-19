@@ -4,9 +4,9 @@
 
 ```sh
 cargo build -p pawflash-core            # core lib only
-cargo build -p pawflash-cli             # CLI (debug)
-cargo build --release -p pawflash-cli   # matches CI
-cargo build -p pawflash-tauri           # Tauri (Rust side)
+cargo build -p pawflash                 # CLI (debug)
+cargo build --release -p pawflash       # matches CI
+cargo build -p pawflash-gui             # Tauri (Rust side)
 cargo test --workspace                  # all tests
 cargo test -p pawflash-core <name>      # single test
 cargo clippy --all-targets --all-features --locked -- -D warnings
@@ -17,13 +17,13 @@ pnpm build                               # tsc && vite build (before tauri build
 pnpm tauri dev                           # Tauri dev server
 ```
 
-**Order:** `pnpm build` before `cargo build -p pawflash-tauri`.
+**Order:** `pnpm build` before `cargo build -p pawflash-gui`.
 
 ## Project structure
 
 ```
 pawflash/
-├── Cargo.toml                        → workspace: core, cli, src-tauri
+├── Cargo.toml                        → workspace: core, pawflash, src-tauri
 ├── crates/pawflash-core/             → domain: flash/, force_fastboot/,
 │                                        scatter_parser/, format/, output/
 ├── src-tauri/                        → Tauri v2 backend (lib.rs has commands, ProgressEvent)
@@ -75,7 +75,7 @@ Two 2-phase workflows (matrix build → single release):
 
 | Workflow | Trigger | Build targets | Release tag |
 |----------|---------|---------------|-------------|
-| `release.yml` | push to main | `pawflash-cli` linux + windows | `release-YYYYMMDD-HHMMSS` |
+| `release.yml` | push to main | `pawflash` linux + windows | `release-YYYYMMDD-HHMMSS` |
 | `release-gui.yml` | changes to `src/`, `src-tauri/`, `package.json`, `pnpm-lock.yaml` | Tauri bundles linux + windows | `gui-release-YYYYMMDD-HHMMSS` |
 
 Shared setup: `.github/actions/setup/`. Linux build deps: `libudev-dev` (CLI), `libwebkit2gtk-4.1-dev` + `patchelf` (GUI).

@@ -1,5 +1,5 @@
 [package]
-name = "pawflash-tauri"
+name = "pawflash-gui"
 version = "0.1.0"
 description = "pawflash desktop GUI"
 authors = ["you"]
