@@ -14,22 +14,20 @@ pub mod interactive;
 
 /// Initialize tracing subscriber and output verbosity.
 pub fn init_logging(verbosity: u8) {
-    use tracing_subscriber::{fmt, prelude::*, registry::Registry, EnvFilter};
+    use tracing_subscriber::filter::LevelFilter;
+    use tracing_subscriber::{fmt, prelude::*, registry::Registry};
 
     pawflash_core::output::set_verbosity(verbosity);
 
-    let level_str = match verbosity {
-        0 => "error",
-        1 => "info",
-        2 => "debug",
-        _ => "trace",
+    let level = match verbosity {
+        0 => LevelFilter::ERROR,
+        1 => LevelFilter::INFO,
+        2 => LevelFilter::DEBUG,
+        _ => LevelFilter::TRACE,
     };
 
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new(level_str));
-
     let subscriber = Registry::default()
-        .with(filter)
+        .with(level)
         .with(
             fmt::Layer::new()
                 .with_writer(std::io::stderr)

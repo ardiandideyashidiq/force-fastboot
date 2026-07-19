@@ -11,16 +11,15 @@ use serde::Serialize;
 use tauri::ipc::Channel;
 use tauri::Emitter;
 use tracing::{debug, info, trace, warn};
+use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::prelude::*;
-use tracing_subscriber::{fmt, registry::Registry, EnvFilter};
+use tracing_subscriber::{fmt, registry::Registry};
 
 // ── Logging init ──────────────────────────────────────────────────────
 
 fn init_logging() {
-  let filter = EnvFilter::try_from_default_env()
-    .unwrap_or_else(|_| EnvFilter::new("info"));
   let subscriber = Registry::default()
-    .with(filter)
+    .with(LevelFilter::INFO)
     .with(
       fmt::Layer::new()
         .with_writer(std::io::stderr)

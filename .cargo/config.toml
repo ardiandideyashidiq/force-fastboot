@@ -1,5 +1,5 @@
 [profile.release]
-lto = "thin"
+lto = true
 codegen-units = 1
 strip = "symbols"
 opt-level = 3

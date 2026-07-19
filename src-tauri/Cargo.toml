@@ -24,4 +24,4 @@ tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["io-util", "time"] }
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "registry"] }
+tracing-subscriber = { version = "0.3", features = ["registry"] }
