@@ -1,9 +1,11 @@
 use std::path::Path;
+use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
 use tracing::{debug, info};
 
-use pawflash_core::flash::FlashExecutor;
+use pawflash_core::flash::executor::FlashExecutor;
+use pawflash_core::flash::simulate::SimulatedTransport;
 use pawflash_core::output;
 use pawflash_core::scatter_parser as sp;
 
@@ -38,6 +40,7 @@ pub(super) async fn run_scatter(cfg: &ScatterConfig<'_>) -> Result<()> {
         FormatMode::Test => Some(true),
     };
     let is_clean = formatted_on_execute.is_some();
+    let clean_test = formatted_on_execute.unwrap_or(false);
 
     let options = sp::FlashPlanOptions {
         mode: cfg.mode,
@@ -75,7 +78,31 @@ pub(super) async fn run_scatter(cfg: &ScatterConfig<'_>) -> Result<()> {
         return print_plan(&plan, cfg.json);
     }
 
-    // ── Mode 3: Execute ─────────────────────────────────────────
+    // ── Mode 3: Execute (simulated) ─────────────────────────────
+    if cfg.simulate {
+        output::status::heading("⚠ SIMULATED MODE — no device will be touched");
+        info!(actions = plan.actions.len(), "connecting simulated transport");
+
+        let transport = SimulatedTransport::from_scatter(&parsed);
+        let vars = transport.device_vars().clone();
+        let mut executor = FlashExecutor::new(transport, vars);
+
+        if is_clean {
+            output::status::heading("Formatting data partitions (simulated)");
+            let fmt_result = executor.format_data(0, clean_test, None).await?;
+            let fmt_failed = pawflash_core::flash::results::print_format_results(&fmt_result);
+            if fmt_failed > 0 {
+                bail!("simulated format-data failed with {fmt_failed} failure(s)");
+            }
+            output::status::blank();
+        }
+
+        debug!("executing flash plan against simulated transport");
+        let result = executor.execute_plan(&plan, false, None).await;
+        return print_flash_result(&result, cfg.json);
+    }
+
+    // ── Mode 4: Execute (real) ─────────────────────────────────
     info!(
         actions = plan.actions.len(),
         skipped = plan.skipped.len(),
@@ -83,13 +110,12 @@ pub(super) async fn run_scatter(cfg: &ScatterConfig<'_>) -> Result<()> {
     );
 
     let mut executor = output::spinner::run_with_spinner(
-        "Connecting to fastboot device...",
-        FlashExecutor::connect(),
+        "Connecting to fastboot device (60s timeout)...",
+        FlashExecutor::wait_for_device(Duration::from_secs(60)),
     )
     .await?;
 
     // ── Optional: format data partitions (--clean/--clean-test) ────
-    let clean_test = formatted_on_execute.unwrap_or(false);
     if is_clean {
         output::status::heading("Formatting data partitions");
         let fmt_result = executor.format_data(0, clean_test, None).await?;
@@ -104,6 +130,11 @@ pub(super) async fn run_scatter(cfg: &ScatterConfig<'_>) -> Result<()> {
 
     let result = executor.execute_plan(&plan, false, None).await;
 
+    print_flash_result(&result, cfg.json)
+}
+
+/// Print the flash result and bail on failures.
+fn print_flash_result(result: &pawflash_core::flash::results::FlashResult, json: bool) -> Result<()> {
     info!(
         total = result.total,
         succeeded = result.succeeded,
@@ -111,11 +142,11 @@ pub(super) async fn run_scatter(cfg: &ScatterConfig<'_>) -> Result<()> {
         "flash execution summary",
     );
 
-    if cfg.json {
-        let json_output = serde_json::to_string_pretty(&result)?;
+    if json {
+        let json_output = serde_json::to_string_pretty(result)?;
         output::status::data(&json_output);
     } else {
-        output::status::stderr(output::tables::flash_result(&result));
+        output::status::stderr(output::tables::flash_result(result));
     }
 
     if result.failed > 0 {

@@ -2,6 +2,7 @@ pub mod error;
 pub mod executor;
 pub mod format;
 pub mod results;
+pub mod simulate;
 pub mod sparse;
 pub mod transport;
 #[cfg(test)]

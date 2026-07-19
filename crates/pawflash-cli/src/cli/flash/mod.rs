@@ -44,6 +44,7 @@ struct ScatterConfig<'a> {
     allowance: sp::Allowance,
     json: bool,
     format_mode: FormatMode,
+    simulate: bool,
 }
 
 fn print_flash_help() -> Result<()> {
@@ -57,6 +58,10 @@ fn print_flash_help() -> Result<()> {
 
 /// Unified handler for all `pawflash flash` operations.
 ///
+/// When `simulate` is true, uses [`SimulatedTransport`] instead of real
+/// USB — scatter flash still reads image files from disk for realistic
+/// I/O timing.
+///
 /// # Errors
 ///
 /// Returns an error if the scatter file cannot be parsed, the device
@@ -67,6 +72,7 @@ pub async fn run(
     image: Option<PathBuf>,
     slot: Option<String>,
     both: bool,
+    simulate: bool,
 ) -> Result<()> {
     match action {
         Some(FlashAction::Scatter {
@@ -101,8 +107,16 @@ pub async fn run(
                 && group.is_empty()
                 && !json
             {
-                warn!("no --part/--group specified; interactive mode uses --mode dirty-flash (your --mode {mode:?} is ignored)");
-                return crate::cli::interactive::run(&scatter_path, exclude, clean, no_format, clean_test).await;
+                if !simulate {
+                    warn!("no --part/--group specified; interactive mode uses --mode dirty-flash (your --mode {mode:?} is ignored)");
+                }
+                return crate::cli::interactive::run(
+                    &scatter_path,
+                    exclude,
+                    crate::cli::interactive::FormatConfig { clean, no_format, clean_test },
+                    simulate,
+                )
+                .await;
             }
 
             let action = if show {
@@ -136,6 +150,7 @@ pub async fn run(
                 },
                 json,
                 format_mode,
+                simulate,
             };
             scatter::run_scatter(&cfg).await?;
         }
@@ -149,7 +164,7 @@ pub async fn run(
                 print_flash_help()?;
                 return Ok(());
             };
-            raw::run_raw_image(&partition, &image, slot, both).await?;
+            raw::run_raw_image(&partition, &image, slot, both, simulate).await?;
         }
     }
 

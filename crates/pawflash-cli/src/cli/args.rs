@@ -13,6 +13,11 @@ pub struct Cli {
     /// matches and rejects non-matching devices.
     #[arg(long, global = true)]
     pub serial: Option<String>,
+    /// Simulate all device operations without touching real hardware.
+    /// Performs real disk I/O for image files and applies realistic
+    /// USB transfer + flash write timing.
+    #[arg(long, global = true)]
+    pub simulate: bool,
     #[command(subcommand)]
     pub command: Option<Commands>,
 }

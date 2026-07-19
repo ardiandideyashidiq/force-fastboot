@@ -22,6 +22,7 @@ async fn main() {
 }
 
 async fn run(cli: Cli) -> anyhow::Result<()> {
+    let simulate = cli.simulate;
     match cli.command {
         None => {
             let mut cmd = Cli::command();
@@ -29,19 +30,19 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
             println!();
         }
         Some(Commands::ForceFastboot) => {
-            pawflash_cli::cli::force_fastboot::run().await?;
+            pawflash_cli::cli::force_fastboot::run(simulate).await?;
         }
         Some(Commands::Flash { action, partition, image, slot, both }) => {
-            pawflash_cli::cli::flash::run(action, partition, image, slot, both).await?;
+            pawflash_cli::cli::flash::run(action, partition, image, slot, both, simulate).await?;
         }
         Some(Commands::DisableVbmeta) => {
-            pawflash_cli::cli::disable_vbmeta::run().await?;
+            pawflash_cli::cli::disable_vbmeta::run(simulate).await?;
         }
         Some(Commands::FormatData { fs_options, fs_type, clean_test }) => {
-            pawflash_cli::cli::format_data::run(fs_options, fs_type, clean_test).await?;
+            pawflash_cli::cli::format_data::run(fs_options, fs_type, clean_test, simulate).await?;
         }
         Some(Commands::Device { action }) => {
-            pawflash_cli::cli::device::run(action).await?;
+            pawflash_cli::cli::device::run(action, simulate).await?;
         }
     }
 

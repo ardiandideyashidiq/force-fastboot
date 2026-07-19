@@ -8,11 +8,13 @@ use crate::flash::error::Result;
 /// Sender handle returned by [`FlashTransport::download`].
 ///
 /// The real variant wraps a device `DataDownload`; the mock variant
-/// is only compiled in test builds.
+/// is only compiled in test builds; the simulated variant is used
+/// by [`SimulatedTransport`](crate::flash::simulate::SimulatedTransport).
 pub enum DownloadSender<'s> {
     Real(fastboot_protocol::nusb::DataDownload<'s>),
     #[cfg(test)]
     Mock(super::mock::MockDownloadSink),
+    Simulated(super::simulate::SimulatedDownloadSink),
 }
 
 impl DownloadSender<'_> {
@@ -25,6 +27,7 @@ impl DownloadSender<'_> {
             Self::Real(inner) => inner.extend_from_slice(data).await.map_err(FlashError::from),
             #[cfg(test)]
             Self::Mock(inner) => inner.extend_from_slice(data).await,
+            Self::Simulated(inner) => inner.extend_from_slice(data).await,
         }
     }
 
@@ -37,6 +40,7 @@ impl DownloadSender<'_> {
             Self::Real(inner) => inner.finish().await.map_err(FlashError::from),
             #[cfg(test)]
             Self::Mock(inner) => inner.finish().await,
+            Self::Simulated(inner) => inner.finish().await,
         }
     }
 }

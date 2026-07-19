@@ -8,11 +8,29 @@ use pawflash_core::output;
 
 /// Force a `MediaTek` device into fastboot mode via preloader handshake.
 ///
+/// When `simulate` is true, replays a realistic 10-second handshake
+/// without any serial port or USB interaction.
+///
 /// # Errors
 ///
 /// Returns an error if no preloader serial port is found, the serial
 /// port cannot be opened, or the handshake otherwise fails.
-pub async fn run() -> Result<()> {
+pub async fn run(simulate: bool) -> Result<()> {
+    if simulate {
+        output::status::heading("⚠ SIMULATED MODE — no device will be touched");
+        let spinner = output::spinner::start("Simulating preloader handshake (10s)...");
+        // Fixed 10-second handshake simulation
+        let total_ticks = 20u64;
+        for tick in 0..total_ticks {
+            sleep(Duration::from_millis(500)).await;
+            debug!(sends = (tick + 1) * 5, "SIM writing FASTBOOT");
+        }
+        output::spinner::succeed(&spinner);
+        output::status::ok("OKAY", "fastboot mode detected (simulated)");
+        debug!(sends = 100u64, elapsed_secs = 10.0, "force-fastboot simulated handshake complete");
+        info!(total_secs = 10.0_f32, sends = 100u64, "SIM force-fastboot complete");
+        return Ok(());
+    }
     let start_all = Instant::now();
     info!("starting");
 
