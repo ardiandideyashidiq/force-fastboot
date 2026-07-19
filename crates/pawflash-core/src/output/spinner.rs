@@ -42,7 +42,7 @@ pub fn progress_bar(len: u64) -> ProgressBar {
             "{prefix:>16}: [{bar:40.green/red}] {bytes}/{total_bytes}  {bytes_per_sec}  ETA {eta}  [{elapsed_precise}]",
         )
         .expect("valid progress bar template")
-        .progress_chars("█▉▊▋▌▍▎▏ "),
+        .progress_chars("#=- "),
     );
     pb
 }
