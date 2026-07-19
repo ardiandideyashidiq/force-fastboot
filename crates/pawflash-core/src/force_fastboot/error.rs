@@ -1,8 +1,10 @@
+use miette::Diagnostic;
 use thiserror::Error;
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Diagnostic)]
 pub enum Error {
     #[error("failed to open serial port `{port}`")]
+    #[diagnostic(help("check port permissions (sudo or install udev rules)"))]
     OpenSerialPort {
         port: String,
         #[source]
@@ -13,6 +15,7 @@ pub enum Error {
     PortEnumeration(#[from] tokio_serial::Error),
 
     #[error("timed out waiting for preloader serial port")]
+    #[diagnostic(help("ensure the device is in preloader mode (hold volume buttons while connecting USB)"))]
     PreloaderTimeout,
 }
 

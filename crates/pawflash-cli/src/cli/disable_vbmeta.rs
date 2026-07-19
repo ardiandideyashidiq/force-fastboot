@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use anyhow::{Context, Result};
+use miette::{bail, Context, Result};
 use tracing::debug;
 
 use pawflash_core::flash::executor::FlashExecutor;
@@ -48,7 +48,7 @@ pub async fn run(simulate: bool) -> Result<()> {
     // vbmeta partitions are only accessible in bootloader mode.
     let is_userspace = executor.get_var("is-userspace").await.unwrap_or_default();
     if is_userspace == "yes" || is_userspace == "true" {
-        anyhow::bail!(
+        bail!(
             "device is in fastbootd mode; vbmeta can only be flashed in bootloader mode.\n\
              Run 'pawflash device reboot bootloader' first."
         );

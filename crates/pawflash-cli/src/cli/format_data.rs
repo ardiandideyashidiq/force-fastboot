@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use anyhow::{bail, Result};
+use miette::{bail, Result};
 use tracing::debug;
 
 use pawflash_core::flash::executor::FlashExecutor;

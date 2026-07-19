@@ -15,6 +15,8 @@ use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use tracing::debug;
 
+use miette::{NamedSource, SourceSpan};
+
 use crate::scatter_parser::error::{Error, Result};
 use crate::scatter_parser::types::{ScatterFile, ScatterPartition};
 
@@ -48,7 +50,19 @@ pub fn parse_scatter(path: impl AsRef<Path>) -> Result<ScatterFile> {
     debug!(?path, is_xml, "scatter format detected");
 
     let parsed = if is_xml {
-        xml::parse_xml_scatter(&text).map_err(|e| Error::Xml(e.to_string()))?
+        match xml::parse_xml_scatter(&text) {
+            Ok(r) => r,
+            Err((detail, offset)) => {
+                return Err(Error::Xml {
+                    detail,
+                    source_text: NamedSource::new(
+                        path.display().to_string(),
+                        text.clone(),
+                    ),
+                    span: SourceSpan::new(offset.into(), 0),
+                });
+            }
+        }
     } else {
         yaml::parse_yaml_scatter(&text)
     };

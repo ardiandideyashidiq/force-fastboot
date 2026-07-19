@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::time::Duration;
 
-use anyhow::{bail, Context, Result};
+use miette::{bail, Context, IntoDiagnostic, Result};
 use tracing::{debug, info};
 
 use pawflash_core::flash::executor::FlashExecutor;
@@ -143,7 +143,7 @@ fn print_flash_result(result: &pawflash_core::flash::results::FlashResult, json:
     );
 
     if json {
-        let json_output = serde_json::to_string_pretty(result)?;
+        let json_output = serde_json::to_string_pretty(result).into_diagnostic()?;
         output::status::data(&json_output);
     } else {
         output::status::stderr(output::tables::flash_result(result));
@@ -176,7 +176,7 @@ fn show_scatter_metadata(path: &Path, full_json: bool) -> Result<()> {
             "partition_count": scatter.layouts.values().map(Vec::len).sum::<usize>(),
             "warnings": scatter.warnings,
             "errors": scatter.errors,
-        }))?;
+        })).into_diagnostic()?;
         output::status::data(&output);
     } else {
         output::status::data(output::tables::scatter_metadata(&scatter));
@@ -197,7 +197,7 @@ fn show_scatter_metadata(path: &Path, full_json: bool) -> Result<()> {
 
 fn print_plan(plan: &sp::FlashPlan, json: bool) -> Result<()> {
     if json {
-        let output = serde_json::to_string_pretty(plan)?;
+        let output = serde_json::to_string_pretty(plan).into_diagnostic()?;
         output::status::data(&output);
     } else {
         output::status::heading("Flash Plan");

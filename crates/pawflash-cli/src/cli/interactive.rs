@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::time::Duration;
 
-use anyhow::{Context, Result};
+use miette::{bail, Context, IntoDiagnostic, Result};
 use inquire::{Confirm, Select};
 use tracing::info;
 
@@ -36,7 +36,7 @@ fn show_plan(_parsed: &sp::ScatterFile, plan: &sp::FlashPlan) -> Result<bool> {
         output::status::stderr(output::tables::plan_errors(plan).unwrap_or_default());
     }
 
-    if has_errors && !Confirm::new("Ignore errors and proceed anyway?").with_default(true).prompt()? {
+    if has_errors && !Confirm::new("Ignore errors and proceed anyway?").with_default(true).prompt().into_diagnostic()? {
         output::status::dim("  Aborted.");
         return Ok(false);
     }
@@ -116,7 +116,7 @@ pub async fn run(
 
     let do_format = !fmt.no_format
         && (fmt.clean || fmt.clean_test)
-        && Confirm::new("Format data partitions (userdata, cache, metadata)?").with_default(true).prompt()?;
+        && Confirm::new("Format data partitions (userdata, cache, metadata)?").with_default(true).prompt().into_diagnostic()?;
 
     if !show_plan(&parsed, &plan)? {
         return Ok(());
@@ -125,7 +125,7 @@ pub async fn run(
         output::status::dim("  Nothing to flash.");
         return Ok(());
     }
-    if !Confirm::new("Proceed with flash?").with_default(false).prompt()? {
+    if !Confirm::new("Proceed with flash?").with_default(false).prompt().into_diagnostic()? {
         output::status::dim("  Aborted.");
         return Ok(());
     }
@@ -161,7 +161,7 @@ async fn execute_interactive_plan<T: pawflash_core::flash::transport::FlashTrans
         let fmt_result = executor.format_data(0, clean_test, None).await?;
         let fmt_failed = pawflash_core::flash::results::print_format_results(&fmt_result);
         if fmt_failed > 0 {
-            anyhow::bail!("format-data failed with {fmt_failed} failure(s)");
+            bail!("format-data failed with {fmt_failed} failure(s)");
         }
         output::status::blank();
     }
@@ -177,7 +177,7 @@ async fn execute_interactive_plan<T: pawflash_core::flash::transport::FlashTrans
         return Ok(());
     }
 
-    let reboot_target = Select::new("Reboot to:", vec!["none (skip)", "system", "recovery", "bootloader", "fastbootd"]).prompt()?;
+    let reboot_target = Select::new("Reboot to:", vec!["none (skip)", "system", "recovery", "bootloader", "fastbootd"]).prompt().into_diagnostic()?;
 
     do_reboot(executor, reboot_target).await
 }

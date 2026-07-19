@@ -2,7 +2,6 @@ use std::collections::BTreeMap;
 use quick_xml::{events::Event, Reader};
 use serde_json::{json, Map, Value};
 
-use crate::scatter_parser::error::{Error, Result};
 use super::{ParsedRawScatter, scalar_json, value_to_string, find_general_value};
 
 #[derive(Debug, Clone, Default)]
@@ -23,8 +22,8 @@ impl XmlNode {
     }
 }
 
-pub(crate) fn parse_xml_scatter(text: &str) -> Result<ParsedRawScatter> {
-    let root = parse_xml_node(text).map_err(Error::Xml)?;
+pub(crate) fn parse_xml_scatter(text: &str) -> std::result::Result<ParsedRawScatter, (String, usize)> {
+    let root = parse_xml_node(text)?;
 
     if is_checksum_scatter(&root) {
         return Ok(ParsedRawScatter {
@@ -193,7 +192,7 @@ fn collect_all_partitions(root: &XmlNode) -> Vec<Map<String, Value>> {
         .collect()
 }
 
-fn parse_xml_node(text: &str) -> std::result::Result<XmlNode, String> {
+fn parse_xml_node(text: &str) -> std::result::Result<XmlNode, (String, usize)> {
     let mut reader = Reader::from_str(text);
     reader.config_mut().trim_text(true);
     let mut buf = Vec::new();
@@ -255,7 +254,7 @@ fn parse_xml_node(text: &str) -> std::result::Result<XmlNode, String> {
             }
             Ok(Event::End(_)) => {
                 let Some(node) = stack.pop() else {
-                    return Err("unexpected closing tag".to_string());
+                    return Err(("unexpected closing tag".to_string(), reader.buffer_position().try_into().unwrap()));
                 };
                 if let Some(parent) = stack.last_mut() {
                     parent.children.push(node);
@@ -264,7 +263,7 @@ fn parse_xml_node(text: &str) -> std::result::Result<XmlNode, String> {
                 }
             }
             Ok(Event::Eof) => break,
-            Err(err) => return Err(err.to_string()),
+            Err(err) => return Err((err.to_string(), reader.buffer_position().try_into().unwrap())),
             _ => {}
         }
         buf.clear();
@@ -272,7 +271,7 @@ fn parse_xml_node(text: &str) -> std::result::Result<XmlNode, String> {
             buf.shrink_to(4096);
         }
     }
-    Err("empty XML document".to_string())
+    Err(("empty XML document".to_string(), reader.buffer_position().try_into().unwrap()))
 }
 
 fn xml_children_dict(node: &XmlNode) -> Map<String, Value> {

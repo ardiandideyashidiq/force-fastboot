@@ -29,10 +29,12 @@ pub(super) fn normalize_partition(
     entry: Map<String, Value>,
 ) -> Result<ScatterPartition> {
     let name = normalize_none_string(get_first(&entry, &["partition_name", "name"]))
-        .ok_or_else(|| {
-            Error::InvalidValue(format!(
+        .ok_or_else(|| Error::InvalidValue {
+            detail: format!(
                 "partition without partition_name in layout {layout}: {entry:?}"
-            ))
+            ),
+            source_text: None,
+            span: None,
         })?;
     let file_name = normalize_none_string(get_first(&entry, &["file_name", "filename"]));
     let known = [

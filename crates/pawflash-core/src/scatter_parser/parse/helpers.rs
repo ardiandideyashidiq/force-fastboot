@@ -6,6 +6,15 @@ use crate::scatter_parser::error::{Error, Result};
 
 const NONE_TOKENS: &[&str] = &["", "NONE", "NULL", "N/A", "NA", "0"];
 
+/// Build an `InvalidValue` error without source context.
+fn invalid(field_name: &str, value: &str) -> Error {
+    Error::InvalidValue {
+        detail: format!("invalid {field_name}: {value}"),
+        source_text: None,
+        span: None,
+    }
+}
+
 /// Parse an integer using MTK scatter conventions (decimal, `0x` hex, `h`-suffix).
 ///
 /// # Errors
@@ -14,7 +23,11 @@ const NONE_TOKENS: &[&str] = &["", "NONE", "NULL", "N/A", "NA", "0"];
 pub fn parse_int(value: &str, field_name: &str) -> Result<i64> {
     let mut s = value.trim().replace('_', "");
     if s.is_empty() {
-        return Err(Error::InvalidValue(format!("empty {field_name}")));
+        return Err(Error::InvalidValue {
+            detail: format!("empty {field_name}"),
+            source_text: None,
+            span: None,
+        });
     }
     let sign = if let Some(rest) = s.strip_prefix('-') {
         s = rest.to_string();
@@ -37,13 +50,9 @@ pub fn parse_int(value: &str, field_name: &str) -> Result<i64> {
     {
         i64::from_str_radix(&s, 16)
     } else {
-        return Err(Error::InvalidValue(format!(
-            "invalid {field_name}: {value}",
-        )));
+        return Err(invalid(field_name, value));
     };
-    parsed.map(|n| n * sign).map_err(|_| {
-        Error::InvalidValue(format!("invalid {field_name}: {value}"))
-    })
+    parsed.map(|n| n * sign).map_err(|_| invalid(field_name, value))
 }
 
 /// Format byte sizes like the Python parser.
@@ -124,8 +133,10 @@ pub(crate) fn parse_field_int(
     default: i64,
 ) -> Result<i64> {
     match value {
-        Some(Value::Number(n)) => n.as_i64().ok_or_else(|| {
-            Error::InvalidValue(format!("invalid {field_name}: {n}"))
+        Some(Value::Number(n)) => n.as_i64().ok_or_else(|| Error::InvalidValue {
+            detail: format!("invalid {field_name}: {n}"),
+            source_text: None,
+            span: None,
         }),
         Some(Value::Bool(b)) => Ok(i64::from(*b)),
         Some(v) => parse_int(

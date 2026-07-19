@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use anyhow::Result;
+use miette::{bail, miette, Result};
 use tracing::{debug, info};
 
 use crate::cli::args::DeviceAction;
@@ -66,7 +66,7 @@ async fn dispatch_device_action<T: pawflash_core::flash::transport::FlashTranspo
         }
         DeviceAction::Reboot { target } => {
             info!(%target, "rebooting device");
-            let boot_target: BootTarget = target.parse().map_err(|e: String| anyhow::anyhow!(e))?;
+            let boot_target: BootTarget = target.parse().map_err(|e: String| miette!(e))?;
             executor.reboot_to(boot_target).await?;
         }
         DeviceAction::Lock => {
@@ -79,14 +79,14 @@ async fn dispatch_device_action<T: pawflash_core::flash::transport::FlashTranspo
         }
         DeviceAction::SetActive { slot } => {
             if slot != "a" && slot != "b" {
-                anyhow::bail!("invalid slot '{slot}': expected 'a' or 'b'");
+                bail!("invalid slot '{slot}': expected 'a' or 'b'");
             }
             let resp = executor.set_active_slot(&slot).await?;
             output::status::ok(format!("{slot} OKAY"), resp);
         }
         DeviceAction::GetVar { var } => match executor.get_var(&var).await {
             Ok(value) => output::status::data(format!("{var}: {value}")),
-            Err(e) => anyhow::bail!("failed to get '{var}': {e}"),
+            Err(e) => bail!("failed to get '{var}': {e}"),
         },
     }
 

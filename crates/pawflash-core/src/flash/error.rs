@@ -1,14 +1,15 @@
 use std::path::PathBuf;
+use miette::Diagnostic;
 use thiserror::Error;
 
-
-
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Diagnostic)]
 pub enum FlashError {
     #[error("no fastboot device found")]
+    #[diagnostic(help("connect your device via USB and check that it is in fastboot mode"))]
     NoDevice,
 
     #[error("device mismatch: expected {expected}, got {actual}")]
+    #[diagnostic(help("use --serial SERIAL to target the correct device"))]
     DeviceMismatch { expected: String, actual: String },
 
     #[error("fastboot protocol: {0}")]
@@ -18,9 +19,11 @@ pub enum FlashError {
     Open(#[from] fastboot_protocol::nusb::NusbFastBootOpenError),
 
     #[error("image not found: {0}")]
+    #[diagnostic(help("verify the image path and --firmware-dir"))]
     ImageNotFound(PathBuf),
 
     #[error("image {name} too large ({image_size}) > partition size ({partition_size})")]
+    #[diagnostic(severity(Warning))]
     ImageTooLarge { name: String, image_size: u64, partition_size: i64 },
 
     #[error("I/O error: {0}")]
@@ -33,6 +36,7 @@ pub enum FlashError {
     ActionFailed { partition: String, reason: String },
 
     #[error("filesystem generator failed: {reason}")]
+    #[diagnostic(help("the format tools may be corrupted; reinstall pawflash"))]
     GeneratorFailed { reason: String },
 
     #[error("failed to parse sparse image header")]

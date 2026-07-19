@@ -1,10 +1,10 @@
 use std::process;
 
 use clap::{CommandFactory, Parser};
+use miette::IntoDiagnostic;
 use pawflash_cli::cli::args::{Cli, Commands};
 use pawflash_cli::cli::init_logging;
 use pawflash_core::flash::executor::set_expected_serial;
-use tracing::error;
 
 #[tokio::main]
 async fn main() {
@@ -16,17 +16,17 @@ async fn main() {
     }
 
     if let Err(err) = run(cli).await {
-        error!("{err:#}");
+        eprintln!("{err}");
         process::exit(1);
     }
 }
 
-async fn run(cli: Cli) -> anyhow::Result<()> {
+async fn run(cli: Cli) -> miette::Result<()> {
     let simulate = cli.simulate;
     match cli.command {
         None => {
             let mut cmd = Cli::command();
-            cmd.print_help()?;
+            cmd.print_help().into_diagnostic()?;
             println!();
         }
         Some(Commands::ForceFastboot) => {

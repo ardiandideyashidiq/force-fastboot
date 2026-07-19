@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::time::Duration;
 
-use anyhow::{bail, Context, Result};
+use miette::{bail, Context, IntoDiagnostic, Result};
 use tracing::{debug, info, warn};
 
 use pawflash_core::flash::executor::FlashExecutor;
@@ -28,7 +28,7 @@ pub(super) async fn run_raw_image(
     if !image.exists() {
         bail!("image not found: {}", image.display());
     }
-    let image = image.canonicalize().context("failed to resolve image path")?;
+    let image = image.canonicalize().into_diagnostic().context("failed to resolve image path")?;
 
     debug!(%partition, image = %image.display(), ?slot, both, "raw image flash requested");
 

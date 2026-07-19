@@ -3,7 +3,7 @@ pub(crate) mod raw;
 
 use std::path::{Path, PathBuf};
 
-use anyhow::Result;
+use miette::{IntoDiagnostic, Result};
 use clap::CommandFactory;
 use tracing::warn;
 
@@ -50,7 +50,7 @@ struct ScatterConfig<'a> {
 fn print_flash_help() -> Result<()> {
     let mut cmd = Cli::command();
     if let Some(flash) = cmd.find_subcommand_mut("flash") {
-        flash.print_help()?;
+        flash.print_help().into_diagnostic()?;
         output::status::blank();
     }
     Ok(())
